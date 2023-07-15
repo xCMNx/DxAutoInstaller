@@ -121,6 +121,7 @@ begin
   FProgressForm.Installer := FInstaller;
   FInstaller.OnUpdateProgress := FProgressForm.UpdateProgress;
   FInstaller.OnUpdateProgressState := FProgressForm.UpdateProgressState;
+  FInstaller.OnOnStartProgress := FProgressForm.CreateProgress;
 
   // Initial Uninstall Page;
   InitialIDEListView();

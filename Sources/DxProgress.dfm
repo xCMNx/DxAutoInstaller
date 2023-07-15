@@ -20,6 +20,14 @@ object DxProgressForm: TDxProgressForm
     424)
   PixelsPerInch = 96
   TextHeight = 15
+  object TimeLabel: TLabel
+    Left = 8
+    Top = 396
+    Width = 42
+    Height = 15
+    Anchors = [akLeft, akBottom]
+    Caption = '00:00:00'
+  end
   object PanLogs: TPanel
     Left = 8
     Top = 8
@@ -66,6 +74,16 @@ object DxProgressForm: TDxProgressForm
     ImageMargins.Right = -10
     Images = Images
     TabOrder = 1
+  end
+  object PanProgress: TPanel
+    Left = 56
+    Top = 392
+    Width = 649
+    Height = 25
+    Anchors = [akLeft, akRight, akBottom]
+    BevelOuter = bvNone
+    TabOrder = 2
+    OnResize = PanProgressResize
   end
   object Actions: TActionList
     Images = Images
@@ -172,5 +190,10 @@ object DxProgressForm: TDxProgressForm
           0000E0070000C00300008001000000000000000000000180000083C10000C7E3
           0000}
       end>
+  end
+  object tmPassed: TTimer
+    OnTimer = tmPassedTimer
+    Left = 296
+    Top = 256
   end
 end

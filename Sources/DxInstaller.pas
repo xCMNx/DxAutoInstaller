@@ -26,6 +26,18 @@ type
 
   TDxUpdateProgressEvent = procedure(IDE: TDxIDE; Component: TDxComponentProfile; const Task, Target: String) of object;
   TDxUpdateProgressStateEvent = procedure(const StateText: String) of object;
+  IProgressBar = interface
+    ['{C6CB1064-4F5F-4EBD-B4CC-ABD3AF3ACF92}']
+    procedure SetMax(const Value: Integer);
+    function GetMax: Integer;
+    procedure SetPos(const Value: Integer);
+    procedure StepIt;
+    procedure SetSize(const Value: Double);
+    function GetSize: Double;
+    property Size: Double read GetSize write SetSize;
+    property Max: Integer read GetMax write SetMax;
+  end;
+  TDxProgressStartEvent = function(const Max: Integer; const Size: Double = 0.5): IProgressBar of object;
 
   TDxInstaller = class
   const
@@ -40,6 +52,8 @@ type
     FState: TDxInstallerState;
     FOnUpdateProgress: TDxUpdateProgressEvent;
     FOnUpdateProgressState: TDxUpdateProgressStateEvent;
+    FOnProgressStart: TDxProgressStartEvent;
+    ProgressBar: IProgressBar;
     procedure SetInstallFileDir(const Value: String);
     function GetComponents(IDE: TDxIDE): TDxComponentList;
     function GetOptions(IDE: TDxIDE): TDxInstallOptions;
@@ -54,6 +68,7 @@ type
     procedure UninstallPackage(IDE: TDxIDE; const IDEPlatform: TDxIDEPlatform; Component: TDxComponentProfile; const PackageBaseName: String);
     procedure UpdateProgress(IDE: TDxIDE; Component: TDxComponentProfile; const Task, Target: String);
     procedure UpdateProgressState(const StateText: String);
+    function CreateProgress(const Max: Integer; const Size: Double = 0.5): IProgressBar;
     procedure CheckStoppedState();
   public
     constructor Create();
@@ -67,6 +82,7 @@ type
     property State: TDxInstallerState read FState;
     property OnUpdateProgress: TDxUpdateProgressEvent read FOnUpdateProgress write FOnUpdateProgress;
     property OnUpdateProgressState: TDxUpdateProgressStateEvent read FOnUpdateProgressState write FOnUpdateProgressState;
+    property OnOnStartProgress: TDxProgressStartEvent read FOnProgressStart write FOnProgressStart;
     procedure Install(const IDEArray: TDxIDEArray); overload;
     procedure Uninstall(const IDEArray: TDxIDEArray); overload;
     procedure Stop();
@@ -82,6 +98,16 @@ implementation
 
 uses
   DxComponentFactory, DxUtils;
+
+type
+  TDummyProgress = class(TinterfacedObject, IProgressBar)
+    procedure SetMax(const Value: Integer);
+    procedure SetPos(const Value: Integer);
+    procedure StepIt;
+    procedure SetSize(const Value: Double);
+    function GetSize: Double;
+    function GetMax: Integer;
+  end;
 
 { TDxInstaller }
 
@@ -99,6 +125,13 @@ begin
   SetLength(FThirdPartyComponents, FIDEs.Count);
   for I := 0 to FIDEs.Count - 1 do DetectionThirdPartyComponents(FIDEs[I]);
   FState := dxisNormal;
+end;
+
+function TDxInstaller.CreateProgress(const Max: Integer; const Size: Double): IProgressBar;
+begin
+  if Assigned(FOnProgressStart) then
+    Exit(FOnProgressStart(Max, Size));
+  Result := TDummyProgress.Create;
 end;
 
 destructor TDxInstaller.Destroy;
@@ -255,8 +288,13 @@ var
   IDE: TDxIDE;
 begin
   SetState(dxisRunning);
-  for IDE in IDEArray do Install(IDE);
-  SetState(dxisNormal);
+  ProgressBar := CreateProgress(Length(IDEArray) * 2, 100);
+  try
+    for IDE in IDEArray do Install(IDE);
+    SetState(dxisNormal);
+  finally
+    ProgressBar := nil;
+  end;
 end;
 
 procedure TDxInstaller.Uninstall(const IDEArray: TDxIDEArray);
@@ -264,8 +302,13 @@ var
   IDE: TDxIDE;
 begin
   SetState(dxisRunning);
-  for IDE in IDEArray do Uninstall(IDE);
-  SetState(dxisNormal);
+  ProgressBar := CreateProgress(Length(IDEArray), 100);
+  try
+    for IDE in IDEArray do Uninstall(IDE);
+    SetState(dxisNormal);
+  finally
+    ProgressBar := nil;
+  end;
 end;
 
 procedure TDxInstaller.Install(IDE: TDxIDE);
@@ -293,8 +336,18 @@ var
     if dxioCompileWin64Library in Options[IDE] then
       CopyFilesToDirectory(ASourcesFileDir + '*.dfm;*.res', GetInstallLibraryDir(InstallFileDir, IDE, Win64));
   end;
+var
+  pb: IProgressBar;
 begin
   Uninstall(IDE);
+  i := 0;
+  for Comp in Components[IDE] do
+  begin
+    if Comp.State <> dxcsInstall then Continue;
+    for Package in Comp.Packages do
+      inc(i, 2);
+  end;
+  pb := CreateProgress(i);
   dxBuildNumber := Profile.GetDxBuildNumber(InstallFileDir);
   InstallSourcesDir := GetInstallSourcesDir(InstallFileDir);
   for Comp in Components[IDE] do begin
@@ -313,7 +366,9 @@ begin
     end;
     for Package in Comp.Packages do if Package.Required then begin
       InstallPackage(IDE, Win32, Comp, Package);
+      pb.StepIt;
       InstallPackage(IDE, Win64, Comp, Package);
+      pb.StepIt;
     end;
   end;
 
@@ -321,7 +376,9 @@ begin
     if Comp.State <> dxcsInstall then Continue;
     for Package in Comp.Packages do if not Package.Required then begin
       InstallPackage(IDE, Win32, Comp, Package);
+      pb.StepIt;
       InstallPackage(IDE, Win64, Comp, Package);
+      pb.StepIt;
     end;
   end;
 
@@ -336,6 +393,7 @@ begin
   end;
 
   SetIDEOverrideEnvironmentVariable(IDE, DxEnvironmentVariableName, InstallFileDir);
+  ProgressBar.StepIt;
 end;
 
 procedure TDxInstaller.InstallPackage(IDE: TDxIDE; const IDEPlatform: TDxIDEPlatform; Component: TDxComponent; Package: TDxPackage);
@@ -419,6 +477,7 @@ procedure TDxInstaller.Uninstall(IDE: TDxIDE);
 var
   Comp: TDxComponentProfile;
   InstallFileDir, InstallLibraryDir, InstallSourcesDir: String;
+  pb: IProgressBar;
 
   procedure RemoveLibraryPath(const IDEPlatform: TDxIDEPlatform);
   begin
@@ -438,38 +497,53 @@ var
   begin
     for Package in List do begin
       UninstallPackage(IDE, Win32, Comp, Package);
+      pb.StepIt;
       UninstallPackage(IDE, Win64, Comp, Package);
+      pb.StepIt;
     end;
   end;
+var
+  i: integer;
 begin
-  for Comp in Profile.Components do begin
-    UninstallPackages(Comp.RequiredPackages);
-    UninstallPackages(Comp.OptionalPackages);
-    UninstallPackages(Comp.OutdatedPackages);
+  i := 4;
+  for Comp in Profile.Components do
+    inc(i, (Comp.RequiredPackages.Count + Comp.OptionalPackages.Count + Comp.OutdatedPackages.Count) * 2);
+  pb := CreateProgress(i + 3);
+  try
+    for Comp in Profile.Components do begin
+      UninstallPackages(Comp.RequiredPackages);
+      UninstallPackages(Comp.OptionalPackages);
+      UninstallPackages(Comp.OutdatedPackages);
+    end;
+
+    InstallFileDir := GetIDEOverrideEnvironmentVariable(IDE, DxEnvironmentVariableName);
+    if InstallFileDir = EmptyStr then Exit;
+    InstallLibraryDir := GetInstallLibraryDir(InstallFileDir, IDE);
+    InstallSourcesDir := GetInstallSourcesDir(InstallFileDir);
+    UpdateProgress(IDE, nil, 'Deleting', 'Installation Files');
+    UpdateProgressState('Deleting Directory: ' + InstallLibraryDir);
+    DxUtils.DeleteDirectory(InstallLibraryDir);
+    pb.StepIt;
+
+    RemoveLibraryPath(Win32);
+    if IsSupportWin64(IDE) then begin
+      InstallLibraryDir := GetInstallLibraryDir(InstallFileDir, IDE, Win64);
+      RemoveLibraryPath(Win64);
+    end;
+    pb.StepIt;
+
+    InstallLibraryDir := GetInstallLibraryDir(InstallFileDir, nil);
+    if IsEmptyDirectory(InstallLibraryDir, InstallSourcesDir) then begin
+      UpdateProgressState('Deleting Directory: ' + InstallSourcesDir);
+      DxUtils.DeleteDirectory(InstallSourcesDir);
+      RemoveDir(InstallLibraryDir);
+    end;
+    pb.StepIt;
+
+    SetIDEOverrideEnvironmentVariable(IDE, DxEnvironmentVariableName, EmptyStr);
+  finally
+    ProgressBar.StepIt;
   end;
-
-  InstallFileDir := GetIDEOverrideEnvironmentVariable(IDE, DxEnvironmentVariableName);
-  if InstallFileDir = EmptyStr then Exit;
-  InstallLibraryDir := GetInstallLibraryDir(InstallFileDir, IDE);
-  InstallSourcesDir := GetInstallSourcesDir(InstallFileDir);
-  UpdateProgress(IDE, nil, 'Deleting', 'Installation Files');
-  UpdateProgressState('Deleting Directory: ' + InstallLibraryDir);
-  DxUtils.DeleteDirectory(InstallLibraryDir);
-
-  RemoveLibraryPath(Win32);
-  if IsSupportWin64(IDE) then begin
-    InstallLibraryDir := GetInstallLibraryDir(InstallFileDir, IDE, Win64);
-    RemoveLibraryPath(Win64);
-  end;
-
-  InstallLibraryDir := GetInstallLibraryDir(InstallFileDir, nil);
-  if IsEmptyDirectory(InstallLibraryDir, InstallSourcesDir) then begin
-    UpdateProgressState('Deleting Directory: ' + InstallSourcesDir);
-    DxUtils.DeleteDirectory(InstallSourcesDir);
-    RemoveDir(InstallLibraryDir);
-  end;
-
-  SetIDEOverrideEnvironmentVariable(IDE, DxEnvironmentVariableName, EmptyStr);
 end;
 
 procedure TDxInstaller.UninstallPackage(IDE: TDxIDE; const IDEPlatform: TDxIDEPlatform; Component: TDxComponentProfile; const PackageBaseName: String);
@@ -504,6 +578,38 @@ end;
 procedure TDxInstaller.UpdateProgressState(const StateText: String);
 begin
   if Assigned(FOnUpdateProgressState) then FOnUpdateProgressState(StateText)
+end;
+
+{ TDummyProgress }
+
+function TDummyProgress.GetMax: Integer;
+begin
+  Result := 0;
+end;
+
+function TDummyProgress.GetSize: Double;
+begin
+  Result := 0;
+end;
+
+procedure TDummyProgress.SetMax(const Value: Integer);
+begin
+  /// do nothing
+end;
+
+procedure TDummyProgress.SetPos(const Value: Integer);
+begin
+  /// do nothing
+end;
+
+procedure TDummyProgress.SetSize(const Value: Double);
+begin
+  /// do nothing
+end;
+
+procedure TDummyProgress.StepIt;
+begin
+  /// do nothing
 end;
 
 end.
