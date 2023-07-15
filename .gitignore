@@ -15,3 +15,6 @@
 *.dres
 
 Desktop.ini
+Bin/
+*.dsk
+*.tvsconfig
