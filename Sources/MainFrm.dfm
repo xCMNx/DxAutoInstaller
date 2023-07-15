@@ -455,6 +455,17 @@ object MainForm: TMainForm
       TabOrder = 0
       OnClick = RefreshTreeList
     end
+    object ChkTryToFindSourcePackage: TCheckBox
+      Left = 180
+      Top = 11
+      Width = 221
+      Height = 17
+      Caption = 'Try to find source package'
+      Checked = True
+      State = cbChecked
+      TabOrder = 3
+      OnClick = ChkTryToFindSourcePackageClick
+    end
   end
   object ActionBase: TActionList
     Images = ImageSmall

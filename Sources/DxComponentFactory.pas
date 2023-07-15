@@ -18,10 +18,11 @@ type
   TDxComponentFactory = class
   private
     FInstaller: TDxInstaller;
+    FFindSourcePackage: Boolean;
     function CreateComponent(IDE: TDxIDE; ComponentProfile: TDxComponentProfile): TDxComponent;
     procedure CreatePackageList(Component: TDxComponent; IDE: TDxIDE; IsRequiredPackages: Boolean);
   public
-    constructor Create(Installer: TDxInstaller);
+    constructor Create(Installer: TDxInstaller; FindSourcePackage: Boolean);
     property Installer: TDxInstaller read FInstaller;
     procedure BuildComponentList(IDE: TDxIDE; List: TDxComponentList);
   end;
@@ -31,10 +32,11 @@ implementation
 
 { TDxComponentFactory }
 
-constructor TDxComponentFactory.Create(Installer: TDxInstaller);
+constructor TDxComponentFactory.Create(Installer: TDxInstaller; FindSourcePackage: Boolean);
 begin
   inherited Create;
   FInstaller := Installer;
+  FFindSourcePackage := FindSourcePackage;
 end;
 
 procedure TDxComponentFactory.BuildComponentList(IDE: TDxIDE; List:TDxComponentList);
@@ -51,7 +53,7 @@ begin
       // Set Package Dependents;
       for C in List do if C <> Comp then
         for P in C.Packages do
-          if Package.Requires.IndexOf(P.FullName) >= 0 then begin
+          if Package.Requires.IndexOf(P.Name) >= 0 then begin
             Package.DependentComponents.Add(C);
             // Set Component Dependents;
             if Package.Required then begin
@@ -85,12 +87,37 @@ var
   List: TStringList;
   PackageName, FileName: String;
   Package: TDxPackage;
+  ComponentPath, Prefix, SourcePrefix: String;
+  i: Byte;
 begin
   if IsRequiredPackages then List := Component.Profile.RequiredPackages else List := Component.Profile.OptionalPackages;
+  ComponentPath := TDxProfile.GetComponentPackagesDir(Installer.InstallFileDir, Component.Profile.ComponentName);
   for PackageName in List do begin
-    FileName := TDxProfile.GetPackageFullFileName(Installer.InstallFileDir, Component.Profile.ComponentName, PackageName, IDE);
-    if not FileExists(FileName) then Continue;
-    Package := TDxPackage.Create(FileName);
+    Prefix := TDxProfile.GetIDEVersionNumberStr(IDE);
+    SourcePrefix := EmptyStr;
+    FileName := ComponentPath + '\' + PackageName + Prefix + IDE.PackageSourceFileExtension;
+    if not FileExists(FileName) then
+    begin
+      if FFindSourcePackage then
+      begin
+        i := 1;
+        while (IDE.IDEPackageVersionNumber + i < 29) or (IDE.IDEPackageVersionNumber - i > 1) do
+        begin
+          SourcePrefix := TDxProfile.GetPackagePrefix(IDE.IDEPackageVersionNumber + i);
+          FileName := ComponentPath + '\' +  PackageName + SourcePrefix + IDE.PackageSourceFileExtension;
+          if FileExists(FileName) then
+            break;
+          SourcePrefix := TDxProfile.GetPackagePrefix(IDE.IDEPackageVersionNumber - i);
+          FileName := ComponentPath + '\' +  PackageName + SourcePrefix + IDE.PackageSourceFileExtension;
+          if FileExists(FileName) then
+            break;
+          Inc(i);
+        end;
+      end;
+      if not FileExists(FileName) then
+        Continue;
+    end;
+    Package := TDxPackage.Create(ComponentPath, PackageName, Prefix, SourcePrefix);
     Package.Required := IsRequiredPackages;
     Component.Packages.Add(Package);
   end;

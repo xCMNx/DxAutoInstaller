@@ -69,6 +69,7 @@ type
     BtnRun: TcxButton;
     BtnExit: TcxButton;
     PanelBottom: TPanel;
+    ChkTryToFindSourcePackage: TCheckBox;
     procedure FormCreate(Sender: TObject);
     procedure URLLinkClick(Sender: TObject; const Link: string; LinkType: TSysLinkType);
     procedure InstallExecute(Sender: TObject);
@@ -83,6 +84,7 @@ type
     procedure ProfileExportExecute(Sender: TObject);
     procedure ProfileDeleteExecute(Sender: TObject);
     procedure SearchNewPackagesExecute(Sender: TObject);
+    procedure ChkTryToFindSourcePackageClick(Sender: TObject);
   private
     { Private declarations }
     FInstaller: TDxInstaller;
@@ -122,6 +124,7 @@ begin
   FInstaller.OnUpdateProgress := FProgressForm.UpdateProgress;
   FInstaller.OnUpdateProgressState := FProgressForm.UpdateProgressState;
   FInstaller.OnOnStartProgress := FProgressForm.CreateProgress;
+  ChkTryToFindSourcePackage.Checked := FInstaller.FindSourcePackage;
 
   // Initial Uninstall Page;
   InitialIDEListView();
@@ -175,6 +178,7 @@ begin
   else if PageFuns.ActivePage = TabUninstall then BtnRun.Action := Uninstall
   else BtnRun.Visible := False;
   ChkHideBaseComponents.Visible := PageFuns.ActivePage = TabInstall;
+  ChkTryToFindSourcePackage.Visible := ChkHideBaseComponents.Visible;
 end;
 
 procedure TMainForm.ProfileDeleteExecute(Sender: TObject);
@@ -256,11 +260,21 @@ begin
   RunInstaller(FInstaller.Uninstall, IDEs);
 end;
 
+procedure TMainForm.ChkTryToFindSourcePackageClick(Sender: TObject);
+begin
+  Screen.Cursor := crHourGlass;
+  try
+    FInstaller.FindSourcePackage := TCheckBox(Sender).Checked;
+  finally
+    Screen.Cursor := crDefault;
+  end;
+  RefreshTreeList(ChkHideBaseComponents);
+end;
+
 procedure TMainForm.EditInstallFileDirRightButtonClick(Sender: TObject);
 var
   Arr: TArray<String>;
   Dir: String;
-  I: Integer;
 begin
   if Win32MajorVersion < 6 then begin
     if not SelectDirectory('Select Installation File Directory:', '', Dir, [sdNewUI], Self) then Exit;
@@ -270,11 +284,10 @@ begin
   end;
   if not SysUtils.DirectoryExists(Dir) then Exit;
   EditInstallFileDir.Text := Dir;
-  I := FInstaller.Profile.GetDxBuildNumber(Dir);
-  EditVersion.Text := FInstaller.Profile.GetDxBuildNumberAsVersion(I);
   Screen.Cursor := crHourGlass;
   try
     FInstaller.InstallFileDir := Dir;
+    EditVersion.Text := FInstaller.Profile.GetDxBuildNumberAsVersion(FInstaller.ComponentsVersion);
   finally
     Screen.Cursor := crDefault;
   end;

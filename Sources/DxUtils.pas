@@ -19,6 +19,7 @@ type
   public
     constructor Create(AOwner: TComponent); override;
   end;
+  TProcessWindowState = (pwsNormal, pwsMinimized, pwsHidden);
 
   function BuildFileList(const Path: String; const List: TStrings; const Attr: Integer;
     const FullFileName: Boolean; const Recursive: Boolean): Boolean;
@@ -30,6 +31,8 @@ type
   function GetVersionStr(): String;
   procedure ExportResourceToFile(const FileName, ResourceName, ResourceType: String);
   procedure ShowInformation(const Text: String);
+  function ExecuteProcess(const FileName, Params: string; Folder: string; WaitUntilTerminated, WaitUntilIdle: boolean; WindowState: TProcessWindowState;
+    var ErrorCode: integer): boolean;
 
 const
   CRLF = #13#10;
@@ -166,6 +169,50 @@ begin
   if Screen.Fonts.IndexOf(Font.Name) < 0 then Font.Name := 'Tahoma';
 end;
 
+function ExecuteProcess(const FileName, Params: string; Folder: string; WaitUntilTerminated, WaitUntilIdle: boolean; WindowState: TProcessWindowState;
+  var ErrorCode: integer): boolean;
+var
+  CmdLine: string;
+  WorkingDirP: PChar;
+  StartupInfo: TStartupInfo;
+  ProcessInfo: TProcessInformation;
+begin
+  Result := true;
+  CmdLine := '"' + FileName + '" ' + Params;
+  if Folder = '' then
+    Folder := ExcludeTrailingPathDelimiter(ExtractFilePath(FileName));
+  ZeroMemory(@StartupInfo, SizeOf(StartupInfo));
+  StartupInfo.cb := SizeOf(StartupInfo);
+  StartupInfo.dwFlags := STARTF_USESHOWWINDOW;
+  case WindowState of
+    pwsMinimized:
+      StartupInfo.wShowWindow := SW_SHOWMINIMIZED;
+    pwsHidden:
+      StartupInfo.wShowWindow := SW_HIDE;
+  else
+    StartupInfo.wShowWindow := SW_SHOWNORMAL;
+  end;
+  if Folder <> '' then
+    WorkingDirP := PChar(Folder)
+  else
+    WorkingDirP := nil;
+  if not CreateProcess(nil, PChar(CmdLine), nil, nil, false, 0, nil, WorkingDirP, StartupInfo, ProcessInfo) then
+  begin
+    Result := false;
+    ErrorCode := GetLastError;
+    exit;
+  end;
+  with ProcessInfo do
+  begin
+    CloseHandle(hThread);
+    if WaitUntilIdle then WaitForInputIdle(hProcess, INFINITE);
+    if WaitUntilTerminated then
+    repeat
+      Application.ProcessMessages;
+    until MsgWaitForMultipleObjects(1, hProcess, false, INFINITE, QS_ALLINPUT) <> WAIT_OBJECT_0 + 1;
+    CloseHandle(hProcess);
+  end;
+end;
 end.
 
 

@@ -50,9 +50,12 @@ type
     FOptions: array of TDxInstallOptions;
     FThirdPartyComponents: array of TDxThirdPartyComponents;
     FState: TDxInstallerState;
+    FRCTemplate: string;
     FOnUpdateProgress: TDxUpdateProgressEvent;
     FOnUpdateProgressState: TDxUpdateProgressStateEvent;
     FOnProgressStart: TDxProgressStartEvent;
+    FComponentsVersion: Cardinal;
+    FFindSourcePackage: boolean;
     ProgressBar: IProgressBar;
     procedure SetInstallFileDir(const Value: String);
     function GetComponents(IDE: TDxIDE): TDxComponentList;
@@ -70,6 +73,8 @@ type
     procedure UpdateProgressState(const StateText: String);
     function CreateProgress(const Max: Integer; const Size: Double = 0.5): IProgressBar;
     procedure CheckStoppedState();
+    procedure SetFindSourcePackage(const Value: boolean);
+    procedure RefreshComponentsAndOptions;
   public
     constructor Create();
     destructor Destroy; override;
@@ -83,6 +88,8 @@ type
     property OnUpdateProgress: TDxUpdateProgressEvent read FOnUpdateProgress write FOnUpdateProgress;
     property OnUpdateProgressState: TDxUpdateProgressStateEvent read FOnUpdateProgressState write FOnUpdateProgressState;
     property OnOnStartProgress: TDxProgressStartEvent read FOnProgressStart write FOnProgressStart;
+    property ComponentsVersion: Cardinal read FComponentsVersion;
+    property FindSourcePackage: boolean read FFindSourcePackage write SetFindSourcePackage;
     procedure Install(const IDEArray: TDxIDEArray); overload;
     procedure Uninstall(const IDEArray: TDxIDEArray); overload;
     procedure Stop();
@@ -113,6 +120,7 @@ type
 { TDxInstaller }
 
 constructor TDxInstaller.Create;
+const TEMP_RC_NAME = 'template.rc';
 var
   I: Integer;
 begin
@@ -126,6 +134,9 @@ begin
   SetLength(FThirdPartyComponents, FIDEs.Count);
   for I := 0 to FIDEs.Count - 1 do DetectionThirdPartyComponents(FIDEs[I]);
   FState := dxisNormal;
+  if not FileExists(TEMP_RC_NAME) then
+    ExportResourceToFile(TEMP_RC_NAME, 'TEMP_RC', 'TXT');
+  FRCTemplate := TFile.ReadAllText(TEMP_RC_NAME);
 end;
 
 function TDxInstaller.CreateProgress(const Max: Integer; const Size: Double): IProgressBar;
@@ -212,7 +223,6 @@ var
   Packages, DPKFileList: TStringList;
   Component: TDxComponentProfile;
   S, FileName: String;
-  I: Integer;
 begin
   List.Clear;
   if InstallFileDir = EmptyStr then Exit;
@@ -236,21 +246,19 @@ begin
   end;
 end;
 
+procedure TDxInstaller.SetFindSourcePackage(const Value: boolean);
+begin
+  FFindSourcePackage := Value;
+  RefreshComponentsAndoptions;
+end;
+
 procedure TDxInstaller.SetInstallFileDir(const Value: String);
 var
-  Factory: TDxComponentFactory;
   I: Integer;
 begin
   FInstallFileDir := Value;
-  Factory := TDxComponentFactory.Create(Self);
-  try
-    for I := 0 to IDEs.Count - 1 do begin
-      if FComponents[I] = nil then FComponents[I] := TDxComponentList.Create;
-      Factory.BuildComponentList(IDEs[I], FComponents[I]);
-    end;
-  finally
-    Factory.Free;
-  end;
+  FComponentsVersion := Profile.GetDxBuildNumber(FInstallFileDir);
+  RefreshComponentsAndoptions;
   for I := 0 to IDEs.Count - 1 do Options[IDEs[I]] := [dxioAddBrowsingPath, dxioNativeLookAndFeel];
 end;
 
@@ -395,6 +403,8 @@ begin
 end;
 
 procedure TDxInstaller.InstallPackage(IDE: TDxIDE; const IDEPlatform: TDxIDEPlatform; Component: TDxComponent; Package: TDxPackage);
+const
+  TEMP_RC_NAME = '~vi.rc';
 var
   BPLPath, DCPPath: String;
   I: Integer;
@@ -402,6 +412,8 @@ var
   ExtraOptions: String;
   InstallSourcesDir, InstallLibraryDir: String;
   DestPackageName: String;
+  ResFileName: String;
+  RCFileName: String;
   Code: string;
 begin
   CheckStoppedState;
@@ -458,6 +470,39 @@ begin
     '-NSWinapi;System.Win;Data.Win;Datasnap.Win;Web.Win;Soap.Win;Xml.Win;Bde;Vcl;Vcl.Imaging;Vcl.Touch;Vcl.Samples;Vcl.Shell;System;Xml;Data;Datasnap;Web;Soap;IBX;VclTee; ';
 
   try
+    if Package.Prefix <> Package.SourcePrefix then
+    begin
+      code := TFile.ReadAllText(Package.FullSourceFileName);
+      code := code
+        .Replace(TPath.GetFileNameWithoutExtension(Package.FullFileName), TPath.GetFileNameWithoutExtension(Package.SourceFullName))
+        .Replace(Package.SourcePrefix, Package.Prefix)
+      ;
+      TFile.WriteAllText(Package.FullFileName, code);
+    end;
+
+    RCFileName := EmptyStr;
+    ResFileName := TPath.ChangeExtension(Package.FullFileName, '.res');
+    if not TFile.Exists(ResFileName) then
+    begin
+      RCFileName := TPath.GetTempPath;
+      DeleteFile(RCFileName);
+      RCFileName := TPath.Combine(RCFileName, TEMP_RC_NAME);
+      i := FComponentsVersion mod 10000;
+      code := FRCTemplate
+        .Replace('%BUILD_YEAR%', IntToStr(FComponentsVersion div 10000))
+        .Replace('%BUILD_MONTH%', IntToStr(i div 100))
+        .Replace('%BUILD_DAY%', IntToStr(i mod 100))
+        .Replace('%MAJOR%', IntToStr(FComponentsVersion div 10000 mod 100))
+        .Replace('%MINOR%', IntToStr(i div 100))
+        .Replace('%BUILD%', IntToStr(i mod 100))
+        .Replace('%DESCRIPTION%', Package.Description.Replace('"', '`'))
+        .Replace('%PACKAGE_NAME%', Package.FullName.Replace('"', '`') + BPLExtName)
+      ;
+      TFile.WriteAllText(RCFileName, code);
+      ExecuteProcess('brcc32.exe', Format('"%s" "-fo%s"', [RCFileName, ResFileName]), EmptyStr, true, false, pwsHidden, i);
+      DeleteFile(RCFileName);
+    end;
+
     if dxioNativeLookAndFeel in Options[IDE] then ExtraOptions := ExtraOptions + ' -DUSENATIVELOOKANDFEELASDEFAULT ';
     if dxioInstallToCppBuilder in Options[IDE] then
       ExtraOptions := ExtraOptions + Format(' -JL -NB"%s" -NH"%s" -NO"%s" ', [DCPPath, InstallLibraryDir, DCPPath]);
@@ -465,12 +510,12 @@ begin
     DestPackageName := Package.FullFileName;
     if dxioDoNotIncludeIDEVersionInPackageName in Options[IDE] then
     begin
-      DestPackageName := IncludeTrailingPathDelimiter(ExtractFilePath(Package.FullFileName)) + Package.ShortName + UNIQUE_PREFIX + ExtractFileExt(Package.FullFileName);
+      DestPackageName := IncludeTrailingPathDelimiter(ExtractFilePath(Package.FullFileName)) + Package.Name + UNIQUE_PREFIX + ExtractFileExt(Package.FullFileName);
       if not SameText(DestPackageName, Package.FullFileName) then
       begin
         code := TFile.ReadAllText(Package.FullFileName);
         code := code.Replace(TDxProfile.GetIDEVersionNumberStr(IDE), UNIQUE_PREFIX);
-        code := code.Replace('{$R *.res}', Format('{$R ''%s''}', [TPath.ChangeExtension(Package.FullFileName, '.res')]));
+        code := code.Replace('{$R *.res}', Format('{$R ''%s''}', [ResFileName]));
         TFile.WriteAllText(DestPackageName, code);
       end;
     end;
@@ -478,7 +523,7 @@ begin
     R := IDE.CompileDelphiPackageEx(DestPackageName, BPLPath, DCPPath, ExtraOptions);
     if R then begin
       // Fix issue that the skin names not listed since v18.2.x. dxSkinXxxxx.bpl should be placed in the library install directory.
-      if SameText(Package.ShortName, 'dxSkin') then
+      if SameText(Package.Name, 'dxSkin') then
         CopyFile(IncludeTrailingPathDelimiter(BPLPath) + Package.FullName + BPLExtName, IncludeTrailingPathDelimiter(InstallLibraryDir) + Package.FullName + BPLExtName, True);
 
       if (IDEPlatform = Win32) and (Package.Usage <> dxpuRuntimeOnly) then
@@ -488,6 +533,31 @@ begin
   finally
     if DestPackageName <> Package.FullFileName then
       DeleteFile(DestPackageName);
+    if Package.Prefix <> Package.SourcePrefix then
+      DeleteFile(Package.FullFileName);
+    if RCFileName <> EmptyStr then
+    begin
+      DeleteFile(RCFileName);
+      DeleteFile(ResFileName);
+    end;
+  end;
+end;
+
+procedure TDxInstaller.RefreshComponentsAndoptions;
+var
+  Factory: TDxComponentFactory;
+  I: Integer;
+begin
+  if FInstallFileDir = EmptyStr then
+    Exit;
+  Factory := TDxComponentFactory.Create(Self, FFindSourcePackage);
+  try
+    for I := 0 to IDEs.Count - 1 do begin
+      if FComponents[I] = nil then FComponents[I] := TDxComponentList.Create;
+      Factory.BuildComponentList(IDEs[I], FComponents[I]);
+    end;
+  finally
+    Factory.Free;
   end;
 end;
 

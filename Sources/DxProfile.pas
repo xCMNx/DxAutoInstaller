@@ -63,6 +63,7 @@ type
     class function GetPackageFullFileName(const InstallFileDir, ComponentName, PackageBaseName: String; IDE: TDxIDE): String;
     class function GetDxBuildNumber(const InstallFileDir: String): Cardinal;
     class function GetDxBuildNumberAsVersion(const BuildNumber: Cardinal): String;
+    class function GetPackagePrefix(const IDEPackageVersionNumber: Byte): String;
   end;
 
 
@@ -178,6 +179,16 @@ end;
 class function TDxProfile.GetPackageName(const PackageBaseName: String; IDE: TDxIDE): String;
 begin
   Result := PackageBaseName + GetIDEVersionNumberStr(IDE);
+end;
+
+class function TDxProfile.GetPackagePrefix(const IDEPackageVersionNumber: Byte): String;
+begin
+  case IDEPackageVersionNumber of
+    0..10:
+      Result := Format('D%d', [IDEPackageVersionNumber]);
+    else
+      Result := Format('RS%d', [IDEPackageVersionNumber]);
+  end;
 end;
 
 class function TDxProfile.GetPackageFullFileName(const InstallFileDir, ComponentName, PackageBaseName: String; IDE: TDxIDE): String;

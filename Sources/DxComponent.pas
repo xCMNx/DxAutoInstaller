@@ -12,7 +12,7 @@ unit DxComponent;
 interface
 
 uses
-  SysUtils, Classes, Generics.Collections, DxProfile;
+  SysUtils, Classes, Generics.Collections, DxProfile, IOUtils;
 
 type
   TDxComponent = class;
@@ -23,10 +23,11 @@ type
 
   TDxPackage = class
   private
-    FFullFileName: String;
     FName: String;
+    FPath: String;
     FPrefix: String;
     FCategory: TdxPackageCategory;
+    FSourcePrefix: String;
     FDescription: String;
     FUsage: TDxPackageUsage;
     FRequires: TStringList;
@@ -35,13 +36,19 @@ type
     FDependentComponents: TDxComponentList;
     procedure ReadOptions();
     function GetFullName: string;
+    function GetSourceFullName: string;
+    function GetFullFileName: string;
+    function GetFullSourceFileName: string;
   public
-    constructor Create(const FullFileName: String);
+    constructor Create(const Path, Name, Prefix: String; const SourcePrefix: String = '');
     destructor Destroy; override;
-    property FullFileName: String read FFullFileName;
+    property FullSourceFileName: String read GetFullSourceFileName;
+    property FullFileName: String read GetFullFileName;
     property Prefix: String read FPrefix;
+    property SourcePrefix: String read FSourcePrefix;
     property FullName: String read GetFullName;
-    property ShortName: String read FName;
+    property SourceFullName: String read GetSourceFullName;
+    property Name: String read FName;
     property Category: TDxPackageCategory read FCategory;
     property Description: String read FDescription;
     property Usage: TDxPackageUsage read FUsage;
@@ -81,6 +88,7 @@ const
   DPKDesigntimeOnlyOptionIdent  = '{$DESIGNONLY';
   DPKRuntimeOnlyOptionIdent     = '{$RUNONLY';
   DPKRequiresOptionIdent        = 'requires';
+  DPKExtName = '.dpk';
 
   dxcsEditModes = [dxcsInstall, dxcsNotInstall];
 
@@ -89,11 +97,16 @@ implementation
 
 { TDxPackage }
 
-constructor TDxPackage.Create(const FullFileName: String);
+constructor TDxPackage.Create(const Path, Name, Prefix, SourcePrefix: String);
 begin
   inherited Create;
-  FFullFileName := FullFileName;
-  GetPackageNameAndPrefix(ChangeFileExt(ExtractFileName(FullFileName), ''), FName, FPrefix);
+  FName := Name;
+  FPrefix := Prefix;
+  FPath := Path;
+  if SourcePrefix = EmptyStr then
+    FSourcePrefix := FPrefix
+  else
+    FSourcePrefix := SourcePrefix;
   if Pos('IBX', FName) > 0 then FCategory := dxpcIBX
     else if Pos('TeeChart', FName)> 0 then FCategory := dxpcTeeChart
     else if Pos('FireDAC', FName) > 0 then FCategory := dxpcFireDAC
@@ -102,7 +115,7 @@ begin
   FDescription := '';
   FUsage := dxpuDesigntimeAndRuntime;
   FRequires := TStringList.Create;
-  FExists := FileExists(FullFileName);
+  FExists := FileExists(FullSourceFileName);
   FRequired := True;
   FDependentComponents := TDxComponentList.Create(False);
   ReadOptions;
@@ -132,17 +145,30 @@ begin
       Result := Copy(Result, 1, Length(Result) - 2);
 end;
 
+function TDxPackage.GetFullFileName: string;
+begin
+  Result := FPath + '\' + FullName + DPKExtName;
+end;
+
 function TDxPackage.GetFullName: string;
 begin
   Result := FName + FPrefix;
 end;
 
+function TDxPackage.GetFullSourceFileName: string;
+begin
+  Result := FPath + '\' + SourceFullName + DPKExtName;
+end;
+
 class procedure TDxPackage.GetPackageNameAndPrefix(const FullName: String; out Name, Prefix: String);
-var
-  I: Integer;
 begin
   Name := ExtractPackageName(FullName);
   Prefix := Copy(FullName, Length(Name) + 1, Length(FullName));
+end;
+
+function TDxPackage.GetSourceFullName: string;
+begin
+  Result := FName + FSourcePrefix;
 end;
 
 procedure TDxPackage.ReadOptions;
@@ -154,12 +180,15 @@ begin
   if not Exists then Exit;
   DPK := TStringList.Create;
   try
-    DPK.LoadFromFile(FullFileName);
+    DPK.LoadFromFile(FullSourceFileName);
     IsInRequiresPart := False;
     for S in DPK do begin
       if IsInRequiresPart then begin
-        if Pos(',', S) > 0 then FRequires.Add(Trim(StringReplace(S, ',', '', []))) else begin
-          FRequires.Add(Trim(StringReplace(S, ';', '', [])));
+        if Pos(',', S) > 0 then
+          FRequires.Add(ExtractPackageName(Trim(StringReplace(S, ',', '', []))))
+        else
+        begin
+          FRequires.Add(ExtractPackageName(Trim(StringReplace(S, ';', '', []))));
           Break;
         end;
       end else begin

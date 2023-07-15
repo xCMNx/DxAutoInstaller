@@ -139,6 +139,11 @@
             <ResourceType>TXT</ResourceType>
             <ResourceId>Readme</ResourceId>
         </RcItem>
+        <RcItem Include="Resources\template.txt">
+            <ContainerId>ResourceItem</ContainerId>
+            <ResourceType>TXT</ResourceType>
+            <ResourceId>TEMP_RC</ResourceId>
+        </RcItem>
         <BuildConfiguration Include="Base">
             <Key>Base</Key>
         </BuildConfiguration>
