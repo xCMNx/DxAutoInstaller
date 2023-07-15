@@ -15,7 +15,7 @@ uses
   Forms, Classes, SysUtils, DxIDE, DxComponent, DxProfile;
 
 type
-  TDxInstallOption = (dxioAddBrowsingPath, dxioNativeLookAndFeel, dxioCompileWin64Library, dxioInstallToCppBuilder, dxioMakeDebugDcu);
+  TDxInstallOption = (dxioAddBrowsingPath, dxioNativeLookAndFeel, dxioCompileWin64Library, dxioInstallToCppBuilder, dxioMakeDebugDcu, dxioDoNotIncludeIDEVersionInPackageName);
   TDxInstallOptions = set of TDxInstallOption;
 
   TDxThirdPartyComponent = (dxtpcIBX, dxtpcTeeChart, dxtpcFireDAC, dxtpcBDE);
@@ -92,12 +92,13 @@ type
   end;
 
 const
-  DxInstallOptionNames: array[TDxInstallOption] of String = ('Add Browsing Path', 'Use Native Look and Feel as Default', 'Compile Win64 Library', 'Install to C++Builder', 'Make debug .dcu');
+  UNIQUE_PREFIX = 'PKG';
+  DxInstallOptionNames: array[TDxInstallOption] of String = ('Add Browsing Path', 'Use Native Look and Feel as Default', 'Compile Win64 Library', 'Install to C++Builder', 'Make debug .dcu', 'Replace IDE version prefix to ' + UNIQUE_PREFIX);
 
 implementation
 
 uses
-  DxComponentFactory, DxUtils;
+  DxComponentFactory, DxUtils, IOUtils;
 
 type
   TDummyProgress = class(TinterfacedObject, IProgressBar)
@@ -226,10 +227,7 @@ begin
     end;
     BuildFileList(IncludeTrailingPathDelimiter(InstallFileDir) + '*.dpk', DPKFileList, faAnyFile, True, True);
     for S in DPKFileList do begin
-      FileName := ChangeFileExt(ExtractFileName(S), '');
-      for I := Length(FileName) downto 1 do if CharInSet(FileName[I], ['0'..'9']) then Delete(FileName, I, 1) else Break;
-      if SameText(FileName[Length(FileName)], 'D') then FileName := Copy(FileName, 1, Length(FileName) - 1)
-      else if SameText(Copy(FileName, Length(FileName) - 1, 2), 'RS') then FileName := Copy(FileName, 1, Length(FileName) - 2);
+      FileName := TDxPackage.ExtractPackageName(ChangeFileExt(ExtractFileName(S), ''));
       if Packages.IndexOf(FileName) < 0 then List.Add(S);
     end;
   finally
@@ -403,6 +401,8 @@ var
   R: Boolean;
   ExtraOptions: String;
   InstallSourcesDir, InstallLibraryDir: String;
+  DestPackageName: String;
+  Code: string;
 begin
   CheckStoppedState;
   if not Package.Exists then Exit;
@@ -457,20 +457,38 @@ begin
     '-AWinTypes=Windows;WinProcs=Windows;DbiTypes=BDE;DbiProcs=BDE ' +
     '-NSWinapi;System.Win;Data.Win;Datasnap.Win;Web.Win;Soap.Win;Xml.Win;Bde;Vcl;Vcl.Imaging;Vcl.Touch;Vcl.Samples;Vcl.Shell;System;Xml;Data;Datasnap;Web;Soap;IBX;VclTee; ';
 
-  if dxioNativeLookAndFeel in Options[IDE] then ExtraOptions := ExtraOptions + ' -DUSENATIVELOOKANDFEELASDEFAULT ';
-  if dxioInstallToCppBuilder in Options[IDE] then
-    ExtraOptions := ExtraOptions + Format(' -JL -NB"%s" -NH"%s" -NO"%s" ', [DCPPath, InstallLibraryDir, DCPPath]);
+  try
+    if dxioNativeLookAndFeel in Options[IDE] then ExtraOptions := ExtraOptions + ' -DUSENATIVELOOKANDFEELASDEFAULT ';
+    if dxioInstallToCppBuilder in Options[IDE] then
+      ExtraOptions := ExtraOptions + Format(' -JL -NB"%s" -NH"%s" -NO"%s" ', [DCPPath, InstallLibraryDir, DCPPath]);
 
-  R := IDE.CompileDelphiPackageEx(Package.FullFileName, BPLPath, DCPPath, ExtraOptions);
-  if R then begin
-    // Fix issue that the skin names not listed since v18.2.x. dxSkinXxxxx.bpl should be placed in the library install directory.
-    if Package.Name.StartsWith('dxSkin') and CharInSet(Package.Name.Chars[6], ['A'..'Z']) then
-      CopyFile(IncludeTrailingPathDelimiter(BPLPath) + Package.Name + BPLExtName, IncludeTrailingPathDelimiter(InstallLibraryDir) + Package.Name + BPLExtName, True);
+    DestPackageName := Package.FullFileName;
+    if dxioDoNotIncludeIDEVersionInPackageName in Options[IDE] then
+    begin
+      DestPackageName := IncludeTrailingPathDelimiter(ExtractFilePath(Package.FullFileName)) + Package.ShortName + UNIQUE_PREFIX + ExtractFileExt(Package.FullFileName);
+      if not SameText(DestPackageName, Package.FullFileName) then
+      begin
+        code := TFile.ReadAllText(Package.FullFileName);
+        code := code.Replace(TDxProfile.GetIDEVersionNumberStr(IDE), UNIQUE_PREFIX);
+        code := code.Replace('{$R *.res}', Format('{$R ''%s''}', [TPath.ChangeExtension(Package.FullFileName, '.res')]));
+        TFile.WriteAllText(DestPackageName, code);
+      end;
+    end;
 
-    if (IDEPlatform = Win32) and (Package.Usage <> dxpuRuntimeOnly) then
-      R := IDE.RegisterPackage(Package.FullFileName, BPLPath, Package.Description);
+    R := IDE.CompileDelphiPackageEx(DestPackageName, BPLPath, DCPPath, ExtraOptions);
+    if R then begin
+      // Fix issue that the skin names not listed since v18.2.x. dxSkinXxxxx.bpl should be placed in the library install directory.
+      if SameText(Package.ShortName, 'dxSkin') then
+        CopyFile(IncludeTrailingPathDelimiter(BPLPath) + Package.FullName + BPLExtName, IncludeTrailingPathDelimiter(InstallLibraryDir) + Package.FullName + BPLExtName, True);
+
+      if (IDEPlatform = Win32) and (Package.Usage <> dxpuRuntimeOnly) then
+        R := IDE.RegisterPackage(DestPackageName, BPLPath, Package.Description);
+    end;
+    if not R then SetState(dxisError);
+  finally
+    if DestPackageName <> Package.FullFileName then
+      DeleteFile(DestPackageName);
   end;
-  if not R then SetState(dxisError);
 end;
 
 procedure TDxInstaller.Uninstall(IDE: TDxIDE);
@@ -556,6 +574,18 @@ begin
   BPLPath := IncludeTrailingPathDelimiter(IDE.BPLOutputPath[IDEPlatform]);
   DCPPath := IncludeTrailingPathDelimiter(IDE.DCPOutputPath[IDEPlatform]);
   PackageName := Profile.GetPackageName(PackageBaseName, IDE);
+
+  FileName := BPLPath + PackageBaseName + UNIQUE_PREFIX + BPLExtName;
+  UpdateProgress(IDE, Component, 'Uninstall Package', FileName);
+  IDE.UnregisterPackage(FileName);
+
+  FileName := ChangeFileExt(FileName, '.*');
+  UpdateProgressState('Deleting BPL Files: ' + FileName);
+  DeleteFiles(FileName);
+
+  FileName := DCPPath + PackageBaseName + UNIQUE_PREFIX + '.*';
+  UpdateProgressState('Deleting DCP Files: ' + FileName);
+  DeleteFiles(FileName);
 
   FileName := BPLPath + PackageName + BPLExtName;
   UpdateProgress(IDE, Component, 'Uninstall Package', FileName);

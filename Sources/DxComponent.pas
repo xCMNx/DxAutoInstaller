@@ -25,6 +25,7 @@ type
   private
     FFullFileName: String;
     FName: String;
+    FPrefix: String;
     FCategory: TdxPackageCategory;
     FDescription: String;
     FUsage: TDxPackageUsage;
@@ -33,11 +34,14 @@ type
     FRequired: Boolean;
     FDependentComponents: TDxComponentList;
     procedure ReadOptions();
+    function GetFullName: string;
   public
     constructor Create(const FullFileName: String);
     destructor Destroy; override;
     property FullFileName: String read FFullFileName;
-    property Name: String read FName;
+    property Prefix: String read FPrefix;
+    property FullName: String read GetFullName;
+    property ShortName: String read FName;
     property Category: TDxPackageCategory read FCategory;
     property Description: String read FDescription;
     property Usage: TDxPackageUsage read FUsage;
@@ -45,6 +49,8 @@ type
     property Exists: Boolean read FExists;
     property Required: Boolean read FRequired write FRequired;
     property DependentComponents: TDxComponentList read FDependentComponents;
+    class procedure GetPackageNameAndPrefix(const FullName: String; out Name, Prefix: String);
+    class function ExtractPackageName(const Name: String): String;
   end;
 
   TDxPackageList = TObjectList<TDxPackage>;
@@ -87,7 +93,7 @@ constructor TDxPackage.Create(const FullFileName: String);
 begin
   inherited Create;
   FFullFileName := FullFileName;
-  FName := ChangeFileExt(ExtractFileName(FullFileName), '');
+  GetPackageNameAndPrefix(ChangeFileExt(ExtractFileName(FullFileName), ''), FName, FPrefix);
   if Pos('IBX', FName) > 0 then FCategory := dxpcIBX
     else if Pos('TeeChart', FName)> 0 then FCategory := dxpcTeeChart
     else if Pos('FireDAC', FName) > 0 then FCategory := dxpcFireDAC
@@ -107,6 +113,36 @@ begin
   FRequires.Free;
   FDependentComponents.Free;
   inherited;
+end;
+
+class function TDxPackage.ExtractPackageName(const Name: String): String;
+var
+  I: Integer;
+begin
+  Result := Name;
+  for I := Length(Result) downto 1 do
+    if CharInSet(Result[I], ['0'..'9']) then
+      Delete(Result, I, 1)
+    else
+      Break;
+  if SameText(Result[Length(Result)], 'D') then
+    Result := Copy(Result, 1, Length(Result) - 1)
+  else
+    if SameText(Copy(Result, Length(Result) - 1, 2), 'RS') then
+      Result := Copy(Result, 1, Length(Result) - 2);
+end;
+
+function TDxPackage.GetFullName: string;
+begin
+  Result := FName + FPrefix;
+end;
+
+class procedure TDxPackage.GetPackageNameAndPrefix(const FullName: String; out Name, Prefix: String);
+var
+  I: Integer;
+begin
+  Name := ExtractPackageName(FullName);
+  Prefix := Copy(FullName, Length(Name) + 1, Length(FullName));
 end;
 
 procedure TDxPackage.ReadOptions;

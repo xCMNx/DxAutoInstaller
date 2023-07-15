@@ -51,7 +51,7 @@ begin
       // Set Package Dependents;
       for C in List do if C <> Comp then
         for P in C.Packages do
-          if Package.Requires.IndexOf(P.Name) >= 0 then begin
+          if Package.Requires.IndexOf(P.FullName) >= 0 then begin
             Package.DependentComponents.Add(C);
             // Set Component Dependents;
             if Package.Required then begin
