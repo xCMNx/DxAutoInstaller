@@ -34,6 +34,7 @@ type
     FExists: Boolean;
     FRequired: Boolean;
     FDependentComponents: TDxComponentList;
+    FContains: TStringList;
     procedure ReadOptions();
     function GetFullName: string;
     function GetSourceFullName: string;
@@ -53,6 +54,7 @@ type
     property Description: String read FDescription;
     property Usage: TDxPackageUsage read FUsage;
     property Requires: TStringList read FRequires;
+    property Contains: TStringList read FContains;
     property Exists: Boolean read FExists;
     property Required: Boolean read FRequired write FRequired;
     property DependentComponents: TDxComponentList read FDependentComponents;
@@ -88,12 +90,135 @@ const
   DPKDesigntimeOnlyOptionIdent  = '{$DESIGNONLY';
   DPKRuntimeOnlyOptionIdent     = '{$RUNONLY';
   DPKRequiresOptionIdent        = 'requires';
+  DPKContainsOptionIdent        = 'contains';
   DPKExtName = '.dpk';
 
   dxcsEditModes = [dxcsInstall, dxcsNotInstall];
 
+function GetComponentsHierarhyJson(const Components: TDxComponentList): String;
 
 implementation
+
+uses
+  JSON, REST.JSON;
+
+Type
+  TDxPackageJson = class
+    Name: String;
+    Description: String;
+    Category: TdxPackageCategory;
+    Usage: TDxPackageUsage;
+    Requires: TArray<String>;
+    Required: Boolean;
+    Contains: TArray<String>;
+    DependentComponents: TArray<String>;
+  public
+    constructor Create(Package: TDxPackage);
+  end;
+  TDxComponentJson = class
+    Name: String;
+    Packages: TArray<TDxPackageJson>;
+    ParentComponents: TArray<String>;
+    SubComponents: TArray<String>;
+  public
+    constructor Create(Component: TDxComponent);
+    destructor Destroy; override;
+  end;
+  TSerializationContainer = class
+    List: TArray<TDxComponentJson>;
+  public
+    constructor Create(Components: TDxComponentList);
+    destructor Destroy; override;
+  end;
+
+{ TDxPackageJson }
+
+function ConponentsToNames(const Components: TDxComponentList): TArray<String>;
+var
+  i: integer;
+begin
+  SetLength(Result, Components.Count);
+  for i := Components.Count - 1 downto 0 do
+    Result[i] := Components[i].Profile.ComponentName;
+end;
+
+constructor TDxPackageJson.Create(Package: TDxPackage);
+begin
+  Name := Package.Name;
+  Description := Package.Description;
+  Category := Package.Category;
+  Usage := Package.Usage;
+  Requires := Package.Requires.ToStringArray;
+  Required := Package.Required;
+  Contains := Package.Contains.ToStringArray;
+  DependentComponents := ConponentsToNames(Package.DependentComponents);
+end;
+
+{ TDxComponentJson }
+
+function PackagesToArray(Packages: TDxPackageList): TArray<TDxPackageJson>;
+var
+  i: integer;
+begin
+  SetLength(Result, Packages.Count);
+  for i := Packages.Count - 1 downto 0 do
+    Result[i] := TDxPackageJson.Create(Packages[i]);
+end;
+
+constructor TDxComponentJson.Create(Component: TDxComponent);
+begin
+  Name := Component.Profile.ComponentName;
+  Packages := PackagesToArray(Component.FPackages);
+  ParentComponents := ConponentsToNames(Component.FParentComponents);
+  SubComponents := ConponentsToNames(Component.FSubComponents);
+end;
+
+destructor TDxComponentJson.Destroy;
+var
+  p: TDxPackageJson;
+begin
+  for p in Packages do
+    p.Free;
+  inherited;
+end;
+
+{ TSerializationContainer }
+
+constructor TSerializationContainer.Create(Components: TDxComponentList);
+var
+  i: integer;
+begin
+  SetLength(List, Components.Count);
+  for i := Components.Count - 1 downto 0 do
+    List[i] := TDxComponentJson.Create(Components[i]);
+end;
+
+destructor TSerializationContainer.Destroy;
+var
+  c: TDxComponentJson;
+begin
+  for c in List do
+    c.Free;
+  inherited;
+end;
+
+function GetComponentsHierarhyJson(const Components: TDxComponentList): String;
+var
+  f: TSerializationContainer;
+  j: TJsonObject;
+begin
+  f:= TSerializationContainer.Create(Components);
+  try
+    j := TJson.ObjectToJsonObject(f);
+    try
+      Result := j.Pairs[0].JsonValue.Format(2);
+    finally
+      j.Free;
+    end;
+  finally
+    f.Free;
+  end;
+end;
 
 { TDxPackage }
 
@@ -118,6 +243,7 @@ begin
   FExists := FileExists(FullSourceFileName);
   FRequired := True;
   FDependentComponents := TDxComponentList.Create(False);
+  FContains := TStringList.Create;;
   ReadOptions;
 end;
 
@@ -125,6 +251,7 @@ destructor TDxPackage.Destroy;
 begin
   FRequires.Free;
   FDependentComponents.Free;
+  FContains.Free;
   inherited;
 end;
 
@@ -172,31 +299,48 @@ begin
 end;
 
 procedure TDxPackage.ReadOptions;
+type
+  TSection = (sNone, sRequieres, sContains);
 var
   DPK: TStringList;
   S: String;
-  IsInRequiresPart: Boolean;
+  section: TSection;
+  targetList: TStringList;
 begin
   if not Exists then Exit;
   DPK := TStringList.Create;
   try
     DPK.LoadFromFile(FullSourceFileName);
-    IsInRequiresPart := False;
+    section := sNone;
+    targetList := nil;
     for S in DPK do begin
-      if IsInRequiresPart then begin
+      if (section in [sRequieres, sContains]) then
+      begin
         if Pos(',', S) > 0 then
-          FRequires.Add(ExtractPackageName(Trim(StringReplace(S, ',', '', []))))
+          targetList.Add(ExtractPackageName(Trim(StringReplace(S, ',', '', []))))
         else
         begin
-          FRequires.Add(ExtractPackageName(Trim(StringReplace(S, ';', '', []))));
-          Break;
+          targetList.Add(ExtractPackageName(Trim(StringReplace(S, ';', '', []))));
+          section := sNone;
         end;
-      end else begin
+      end else
+      begin
         if Pos(DPKDescriptionOptionIdent, S) > 0 then
           FDescription := Copy(S, Length(DPKDescriptionOptionIdent) + 1, Length(S) - Length(DPKDescriptionOptionIdent) - 2)
-        else if Pos(DPKDesigntimeOnlyOptionIdent, S) > 0 then FUsage := dxpuDesigntimeOnly
-        else if Pos(DPKRuntimeOnlyOptionIdent, S) > 0 then FUsage := dxpuRuntimeOnly
-        else if Trim(S) = DPKRequiresOptionIdent then IsInRequiresPart := True;
+        else if Pos(DPKDesigntimeOnlyOptionIdent, S) > 0
+          then FUsage := dxpuDesigntimeOnly
+          else if Pos(DPKRuntimeOnlyOptionIdent, S) > 0 then
+            FUsage := dxpuRuntimeOnly
+          else if Trim(S) = DPKRequiresOptionIdent then
+          begin
+            section := sRequieres;
+            targetList := FRequires;
+          end
+          else if Trim(S) = DPKContainsOptionIdent then
+          begin
+            section := sContains;
+            targetList := FContains;
+          end;
       end;
     end;
   finally

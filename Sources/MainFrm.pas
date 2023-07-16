@@ -16,7 +16,7 @@ uses
   Dialogs, ExtCtrls, dxGDIPlusClasses, StdCtrls, ComCtrls, ImgList, cxGraphics,
   ActnList, Buttons, DxQuantumTreeList, DxInstaller, DxProgress, DxIDE, DxUtils,
   System.Actions, System.ImageList, cxLookAndFeels, cxLookAndFeelPainters,
-  Vcl.Menus, cxImageList, cxButtons;
+  Vcl.Menus, cxImageList, cxButtons, cxControls, cxContainer, cxEdit, cxTextEdit, cxMemo;
 
 {$WARN UNIT_PLATFORM OFF}
 
@@ -70,6 +70,8 @@ type
     BtnExit: TcxButton;
     PanelBottom: TPanel;
     ChkTryToFindSourcePackage: TCheckBox;
+    GroupBox3: TGroupBox;
+    PageHierarchy: TPageControl;
     procedure FormCreate(Sender: TObject);
     procedure URLLinkClick(Sender: TObject; const Link: string; LinkType: TSysLinkType);
     procedure InstallExecute(Sender: TObject);
@@ -91,6 +93,7 @@ type
     FTreeList: TDxQuantumTreeList;
     FProgressForm: TDxProgressForm;
     procedure RunInstaller(Action: TDxInstallerAction; const IDEArray: TDxIDEArray);
+    procedure UpdateHierarchy;
   public
     { Public declarations }
   end;
@@ -117,7 +120,7 @@ begin
 
   // Initial Install Page;
   FInstaller := TDxInstaller.Create;
-  PanTreeList.BevelKind := bkNone;
+  PanTreeList.BevelKind := Vcl.Controls.bkNone;
   FTreeList := TDxQuantumTreeList.Create(FInstaller, PanTreeList);
   FProgressForm := TDxProgressForm.Create(nil);
   FProgressForm.Installer := FInstaller;
@@ -260,6 +263,32 @@ begin
   RunInstaller(FInstaller.Uninstall, IDEs);
 end;
 
+procedure TMainForm.UpdateHierarchy;
+var
+  i: Integer;
+  mem: TcxMemo;
+  tab: TTabSheet;
+begin
+  while PageHierarchy.PageCount > 0 do
+    PageHierarchy.Pages[0].Free;
+  for i := 0 to FInstaller.IDEs.Count - 1 do
+  begin
+    tab := TTabSheet.Create(PageHierarchy);
+    tab.PageControl := PageHierarchy;
+    tab.Caption := FInstaller.IDEs[i].Name;
+    mem := TcxMemo.Create(tab);
+    mem.Parent := tab;
+    mem.Align := alClient;
+    mem.Style.BorderStyle := ebsNone;
+    mem.StyleDisabled.BorderStyle := ebsNone;
+    mem.StyleFocused.BorderStyle := ebsNone;
+    mem.StyleHot.BorderStyle := ebsNone;
+    mem.Properties.ScrollBars := ssBoth;
+    mem.Properties.ReadOnly := True;
+    mem.Lines.Text := FInstaller.GetIdeComponentsHierarchy(FInstaller.IDEs[i]);
+  end;
+end;
+
 procedure TMainForm.ChkTryToFindSourcePackageClick(Sender: TObject);
 begin
   Screen.Cursor := crHourGlass;
@@ -269,6 +298,7 @@ begin
     Screen.Cursor := crDefault;
   end;
   RefreshTreeList(ChkHideBaseComponents);
+  UpdateHierarchy;
 end;
 
 procedure TMainForm.EditInstallFileDirRightButtonClick(Sender: TObject);
@@ -292,6 +322,7 @@ begin
     Screen.Cursor := crDefault;
   end;
   RefreshTreeList(ChkHideBaseComponents);
+  UpdateHierarchy;
 end;
 
 procedure TMainForm.ExitAppExecute(Sender: TObject);

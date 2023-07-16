@@ -78,6 +78,7 @@ type
   public
     constructor Create();
     destructor Destroy; override;
+    function GetIdeComponentsHierarchy(IDE: TDxIDE): string;
     property IDEs: TDxIDEs read FIDEs;
     property Profile: TDxProfile read FProfile;
     property InstallFileDir: String read FInstallFileDir write SetInstallFileDir;
@@ -171,6 +172,12 @@ begin
     else if (not(dxtpcBDE in Components)) and (Pos('\dclbde', FileName) > 0) then Include(Components, dxtpcBDE);
   end;
   ThirdPartyComponents[IDE] := Components;
+end;
+
+function TDxInstaller.GetIdeComponentsHierarchy(IDE: TDxIDE): string;
+begin
+  if InstallFileDir = EmptyStr then Exit(EmptyStr);
+  Result := GetComponentsHierarhyJson(FComponents[IDEs.IndexOf(IDE)]);
 end;
 
 class function TDxInstaller.GetInstallLibraryDir(const InstallFileDir: String; IDE: TDxIDE; const IDEPlatform: TDxIDEPlatform): String;

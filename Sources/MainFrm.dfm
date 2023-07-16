@@ -26,6 +26,7 @@ object MainForm: TMainForm
     Color = clWhite
     ParentBackground = False
     TabOrder = 0
+    ExplicitWidth = 614
     DesignSize = (
       618
       95)
@@ -261,11 +262,11 @@ object MainForm: TMainForm
           Left = 8
           Top = 102
           Width = 578
-          Height = 543
+          Height = 125
           Margins.Left = 8
           Margins.Right = 8
           Margins.Bottom = 10
-          Align = alClient
+          Align = alTop
           Caption = 'Profile'
           TabOrder = 1
           ExplicitTop = 104
@@ -273,7 +274,7 @@ object MainForm: TMainForm
           ExplicitHeight = 542
           DesignSize = (
             578
-            543)
+            125)
           object LblCurrentProfile: TLabel
             Left = 16
             Top = 32
@@ -302,14 +303,13 @@ object MainForm: TMainForm
           object LblCustomProfile: TLinkLabel
             Left = 16
             Top = 88
-            Width = 545
+            Width = 541
             Height = 19
             Anchors = [akLeft, akTop, akRight]
             AutoSize = False
             Caption = 'Custom Profile:'
             TabOrder = 1
             OnLinkClick = URLLinkClick
-            ExplicitWidth = 543
           end
         end
         object GroupBox2: TGroupBox
@@ -325,7 +325,6 @@ object MainForm: TMainForm
           Align = alTop
           Caption = 'Packages'
           TabOrder = 0
-          ExplicitWidth = 576
           object Button1: TButton
             Left = 16
             Top = 32
@@ -336,6 +335,34 @@ object MainForm: TMainForm
             ImageMargins.Right = -35
             Images = ImageSmall
             TabOrder = 0
+          end
+        end
+        object GroupBox3: TGroupBox
+          AlignWithMargins = True
+          Left = 8
+          Top = 240
+          Width = 578
+          Height = 405
+          Margins.Left = 8
+          Margins.Right = 8
+          Margins.Bottom = 10
+          Align = alClient
+          Caption = 'Components hierarchy'
+          TabOrder = 2
+          object PageHierarchy: TPageControl
+            AlignWithMargins = True
+            Left = 12
+            Top = 22
+            Width = 554
+            Height = 371
+            Margins.Left = 10
+            Margins.Top = 5
+            Margins.Right = 10
+            Margins.Bottom = 10
+            Align = alClient
+            TabOrder = 0
+            ExplicitTop = 27
+            ExplicitHeight = 366
           end
         end
       end
