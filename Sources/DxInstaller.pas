@@ -466,7 +466,7 @@ begin
   // -NH  Unit .hpp Output Directory;
   // -NO  Unit .obj Output Directory - DCP Path;
   if dxioMakeDebugDcu in Options[IDE] then
-    ExtraOptions := ' -$D+ -$L+ -$Y+'
+    ExtraOptions := ' -$D+ -$L+ -$Y+ -$O- -DDXDEBUGMODE'
   else
     ExtraOptions := ' -$D- -$L- -$Y-';
   ExtraOptions := ExtraOptions +
