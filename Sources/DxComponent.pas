@@ -73,6 +73,7 @@ type
     FSubComponents: TDxComponentList;
     FState: TDxComponentState;
     procedure SetState(const Value: TDxComponentState);
+    function GetCanInstall: boolean;
   public
     constructor Create(ComponentProfile: TDxComponentProfile);
     destructor Destroy; override;
@@ -83,6 +84,7 @@ type
     property State: TDxComponentState read FState write SetState;
     function GetExistsPackageCount(): Integer;
     function IsMissingDependents(): Boolean;
+    property Installable: Boolean read GetCanInstall;
   end;
 
 const
@@ -316,6 +318,8 @@ begin
     for S in DPK do begin
       if (section in [sRequieres, sContains]) then
       begin
+        if (Trim(S) = EmptyStr) or (Pos('{$', S) > 0) then
+          Continue;
         if Pos(',', S) > 0 then
           targetList.Add(ExtractPackageName(Trim(StringReplace(S, ',', '', []))))
         else
@@ -366,6 +370,27 @@ begin
   FParentComponents.Free;
   FSubComponents.Free;
   inherited;
+end;
+
+function TDxComponent.GetCanInstall: boolean;
+var
+  Package: TDxPackage;
+  Component: TDxComponent;
+  Cnt: Integer;
+begin
+  Result := false;
+  for Component in FParentComponents do
+    if not Component.Installable then
+      Exit;
+  Cnt := 0;
+  for Package in Packages do
+  begin
+    if Package.Exists then
+      Inc(Cnt)
+    else if Package.Required then
+      Exit;
+  end;
+  Result := Cnt > 0;
 end;
 
 function TDxComponent.GetExistsPackageCount: Integer;

@@ -18,7 +18,10 @@ uses
   System.Actions, Vcl.ComCtrls, Generics.Collections, Diagnostics;
 
 type
-  TProgressBarEvent = (pbeCreate, pbeInvalidate, pbeMaxChanged, pbeSizeChanged, pbeTerminate);
+  TStopwatchHelper = record helper for TStopwatch
+    function TimeString: string;
+  end;
+  TProgressBaseBarEvent = (pbeCreate, pbeInvalidate, pbePosChanged, pbeMaxChanged, pbeSizeChanged, pbeTerminate);
   IProgressBarControl = interface(IProgressBar)
     ['{99843BC2-0B80-48F3-8403-DE0296E5EBCA}']
     function GetControl: TControl;
@@ -60,7 +63,7 @@ type
     FBars: TList<Weakref<IProgressBarControl>>;
     FStopwatch: TStopwatch;
     procedure ArrangeProgressBars;
-    procedure OnProgresEvent(progress: IProgressBarControl; event: TProgressBarEvent);
+    procedure OnProgresEvent(progress: IProgressBar; event: TProgressBaseBarEvent);
   public
     { Public declarations }
     property Installer: TDxInstaller read FInstaller write FInstaller;
@@ -69,33 +72,59 @@ type
     procedure UpdateProgressState(const StateText: String);
     function CreateProgress(const Max: Integer; const Size: Double = 0.5): IProgressBar;
   end;
+type
+  TOnProgressBarEvent = procedure(progress: IProgressBar; event: TProgressBaseBarEvent) of object;
+  TProgressBase = class(TinterfacedObject, IProgressBar)
+  protected
+    FOnEvent: TOnProgressBarEvent;
+  protected
+    procedure DoEvent(event: TProgressBaseBarEvent);
+  public
+    constructor Create(const Max: integer; onEvent: TOnProgressBarEvent; Size: double = 0);
+    destructor Destroy; override;
+    procedure SetMax(const Value: Integer); virtual;
+    function GetMax: Integer; virtual; abstract;
+    procedure SetPos(const Value: Integer); virtual;
+    function GetPos: Integer; virtual; abstract;
+    procedure StepIt; virtual;
+    procedure SetSize(const Value: Double); virtual;
+    function GetSize: Double; virtual; abstract;
+  end;
+
+function GetProgressTitle(IDE: TDxIDE; Component: TDxComponentProfile; const Task, Target: String): string;
 
 implementation
 
 {$R *.dfm}
 
 type
-  TOnProgressBarEvent = procedure(progress: IProgressBarControl; event: TProgressBarEvent) of object;
-  TProgress = class(TinterfacedObject, IProgressBar, IProgressBarControl)
+  TProgress = class(TProgressBase, IProgressBarControl)
   protected
     FProgress: TCxProgressBar;
-    FOnEvent: TOnProgressBarEvent;
     FSize: Double;
-  protected
-    procedure DoEvent(event: TProgressBarEvent);
   public
     constructor Create(const Owner: TWinControl; const Max: integer; onEvent: TOnProgressBarEvent; Size: double = 0);
     destructor Destroy; override;
-    procedure SetMax(const Value: Integer);
-    function GetMax: Integer;
-    procedure SetPos(const Value: Integer);
-    procedure StepIt;
-    procedure SetSize(const Value: Double);
-    function GetSize: Double;
+    procedure SetMax(const Value: Integer); override;
+    function GetMax: Integer; override;
+    procedure SetPos(const Value: Integer); override;
+    function GetPos: Integer; override;
+    procedure SetSize(const Value: Double); override;
+    function GetSize: Double; override;
     function GetControl: TControl;
     property Control: TControl read GetControl;
   end;
 
+function GetProgressTitle(IDE: TDxIDE; Component: TDxComponentProfile; const Task, Target: String): string;
+begin
+  Result := IDE.Name;
+  if Component <> nil then
+    Result := Result + ' > ' + Component.ComponentName;
+  if Task <> EmptyStr then
+    Result := Result + ' > ' + Task;
+  if Target <> EmptyStr then
+    Result := Result + ' > ' + Target;
+end;
 
 { TDxProgressForm }
 
@@ -192,20 +221,23 @@ begin
   Show;
 end;
 
-procedure TDxProgressForm.OnProgresEvent(progress: IProgressBarControl; event: TProgressBarEvent);
+procedure TDxProgressForm.OnProgresEvent(progress: IProgressBar; event: TProgressBaseBarEvent);
+var
+  bar: IProgressBarControl;
 begin
+  bar := progress as IProgressBarControl;
   case event of
     pbeCreate:
     begin
-      FBars.Add(progress);
-      progress.Control.Top := 0;
-      progress.Control.Height := PanProgress.ClientHeight;
+      FBars.Add(bar);
+      bar.Control.Top := 0;
+      bar.Control.Height := PanProgress.ClientHeight;
     end;
     pbeTerminate:
-      FBars.Remove(progress);
+      FBars.Remove(bar);
   end;
-  if not progress.Control.Visible then
-    progress.Control.Width := 0;
+  if not bar.Control.Visible then
+    bar.Control.Width := 0;
   ArrangeProgressBars;
   Application.ProcessMessages;
 end;
@@ -217,22 +249,19 @@ end;
 
 procedure TDxProgressForm.tmPassedTimer(Sender: TObject);
 begin
-  TimeLabel.Caption := FStopWatch.Elapsed.ToString.Split(['.'])[0];
+  TimeLabel.Caption := FStopWatch.TimeString;
 end;
 
 procedure TDxProgressForm.UpdateProgress(IDE: TDxIDE; Component: TDxComponentProfile; const Task, Target: String);
 begin
   if Installer = nil then Exit;
   if Installer.State = dxisRunning then BtnAction.Action := ActionStop;
-  ProgressTitle.Caption := IDE.Name;
-  if Component <> nil then ProgressTitle.Caption := ProgressTitle.Caption + ' > ' + Component.ComponentName;
-  if Task <> EmptyStr then ProgressTitle.Caption := ProgressTitle.Caption + ' > ' + Task;
+  ProgressTitle.Caption := GetProgressTitle(IDE, Component, Task, Target);
   if FTarget <> Target then begin
     FTargetLogs.Clear;
     ProgressLogs.Lines.Add(StringOfChar('-', 100));
   end;
   FTarget := Target;
-  if Target <> EmptyStr then ProgressTitle.Caption := ProgressTitle.Caption + ' > ' + Target;
 end;
 
 procedure TDxProgressForm.UpdateProgressState(const StateText: String);
@@ -253,67 +282,46 @@ begin
   end;
 end;
 
-{ TProgress }
+{ TProgressBase }
 
-constructor TProgress.Create(const Owner: TWinControl; const Max: integer; onEvent: TOnProgressBarEvent; Size: double = 0);
+constructor TProgressBase.Create(const Max: integer; onEvent: TOnProgressBarEvent; Size: double = 0);
 begin
-  FProgress := TCxProgressBar.Create(Owner);
-  FSize := Size;
-  FProgress.Parent := Owner;
   SetMax(Max);
+  SetSize(Size);
   FOnEvent := onEvent;
   DoEvent(pbeCreate);
 end;
 
-destructor TProgress.Destroy;
+destructor TProgressBase.Destroy;
 begin
   DoEvent(pbeTerminate);
-  FreeAndNil(FProgress);
   inherited;
 end;
 
-procedure TProgress.DoEvent(event: TProgressBarEvent);
+procedure TProgressBase.DoEvent(event: TProgressBaseBarEvent);
 begin
   if Assigned(FOnEvent) then
     FOnEvent(self, event);
 end;
 
-function TProgress.GetControl: TControl;
+procedure TProgressBase.SetMax(const Value: Integer);
 begin
-  Result := FProgress;
-end;
-
-function TProgress.GetMax: Integer;
-begin
-  Result := Trunc(FProgress.Properties.Max);
-end;
-
-function TProgress.GetSize: Double;
-begin
-  Result := FSize;
-end;
-
-procedure TProgress.SetMax(const Value: Integer);
-begin
-  FProgress.Properties.Max := Value;
-  FProgress.Visible := Value > 1;
   DoEvent(pbeMaxChanged);
 end;
 
-procedure TProgress.SetPos(const Value: Integer);
+procedure TProgressBase.SetPos(const Value: Integer);
 begin
-  FProgress.Position := Value;
+  DoEvent(pbePosChanged);
 end;
 
-procedure TProgress.SetSize(const Value: Double);
+procedure TProgressBase.SetSize(const Value: Double);
 begin
-  FSize := Value;
   DoEvent(pbeSizeChanged);
 end;
 
-procedure TProgress.StepIt;
+procedure TProgressBase.StepIt;
 begin
-  FProgress.Position := FProgress.Position + 1;
+  SetPos(GetPos + 1);
 end;
 
 { Weakref<T> }
@@ -341,6 +349,68 @@ end;
 class operator Weakref<T>.Implicit(const value: T): Weakref<T>;
 begin
   Result.ref := value;
+end;
+
+{ TProgress }
+
+constructor TProgress.Create(const Owner: TWinControl; const Max: integer; onEvent: TOnProgressBarEvent; Size: double);
+begin
+  FProgress := TCxProgressBar.Create(Owner);
+  FSize := Size;
+  FProgress.Parent := Owner;
+  inherited Create(Max, onEvent, Size);
+end;
+
+destructor TProgress.Destroy;
+begin
+  inherited;
+  FreeAndNil(FProgress);
+end;
+
+function TProgress.GetControl: TControl;
+begin
+  Result := FProgress;
+end;
+
+function TProgress.GetMax: Integer;
+begin
+  Result := Trunc(FProgress.Properties.Max);
+end;
+
+function TProgress.GetPos: Integer;
+begin
+  Result := Trunc(FProgress.Position);
+end;
+
+function TProgress.GetSize: Double;
+begin
+  Result := FSize;
+end;
+
+procedure TProgress.SetMax(const Value: Integer);
+begin
+  FProgress.Properties.Max := Value;
+  FProgress.Visible := Value > 1;
+  inherited;
+end;
+
+procedure TProgress.SetPos(const Value: Integer);
+begin
+  FProgress.Position := Value;
+  inherited;
+end;
+
+procedure TProgress.SetSize(const Value: Double);
+begin
+  FSize := Value;
+  inherited;
+end;
+
+{ TStopwatchHelper }
+
+function TStopwatchHelper.TimeString: string;
+begin
+  Result := Elapsed.ToString.Split(['.'])[0];
 end;
 
 end.

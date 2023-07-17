@@ -12,7 +12,13 @@ unit DxInstaller;
 interface
 
 uses
-  Forms, Classes, SysUtils, DxIDE, DxComponent, DxProfile;
+  Forms,
+  Classes,
+  SysUtils,
+  DxIDE,
+  DxComponent,
+  DxProfile,
+  DxConsoleSwitchesConsts;
 
 type
   TDxInstallOption = (dxioAddBrowsingPath, dxioNativeLookAndFeel, dxioCompileWin64Library, dxioInstallToCppBuilder, dxioMakeDebugDcu, dxioDoNotIncludeIDEVersionInPackageName);
@@ -31,13 +37,17 @@ type
     procedure SetMax(const Value: Integer);
     function GetMax: Integer;
     procedure SetPos(const Value: Integer);
+    function GetPos: Integer;
     procedure StepIt;
     procedure SetSize(const Value: Double);
     function GetSize: Double;
     property Size: Double read GetSize write SetSize;
     property Max: Integer read GetMax write SetMax;
+    property Pos: Integer read GetPos write SetPos;
   end;
   TDxProgressStartEvent = function(const Max: Integer; const Size: Double = 0.5): IProgressBar of object;
+  TDxInstallerOption = (dxioConsoleMode, dxioCompileOnly);
+  TDxInstallerOptions = set of TDxInstallerOption;
 
   TDxInstaller = class
   const
@@ -56,7 +66,13 @@ type
     FOnProgressStart: TDxProgressStartEvent;
     FComponentsVersion: Cardinal;
     FFindSourcePackage: boolean;
-    ProgressBar: IProgressBar;
+    FProgressBar: IProgressBar;
+    FConsoleMode: boolean;
+    FCompileOnly: boolean;
+    FPackagePrefix: String;
+    FInstallLibraryDir: String;
+    FBPLPath: String;
+    FDCPPath: String;
     procedure SetInstallFileDir(const Value: String);
     function GetComponents(IDE: TDxIDE): TDxComponentList;
     function GetOptions(IDE: TDxIDE): TDxInstallOptions;
@@ -75,8 +91,10 @@ type
     procedure CheckStoppedState();
     procedure SetFindSourcePackage(const Value: boolean);
     procedure RefreshComponentsAndOptions;
+    function GetBplPath(IDE: TDxIDE; const IDEPlatform: TDxIDEPlatform): String;
+    function GetDclPath(IDE: TDxIDE; const IDEPlatform: TDxIDEPlatform): String;
   public
-    constructor Create();
+    constructor Create(const Options: TDxInstallerOptions = []);
     destructor Destroy; override;
     function GetIdeComponentsHierarchy(IDE: TDxIDE): string;
     property IDEs: TDxIDEs read FIDEs;
@@ -91,22 +109,34 @@ type
     property OnOnStartProgress: TDxProgressStartEvent read FOnProgressStart write FOnProgressStart;
     property ComponentsVersion: Cardinal read FComponentsVersion;
     property FindSourcePackage: boolean read FFindSourcePackage write SetFindSourcePackage;
+    property ConsoleMode: Boolean read FConsoleMode;
+    property PackagePrefix: String read FPackagePrefix write FPackagePrefix;
+    property InstallLibraryDir: String read FInstallLibraryDir write FInstallLibraryDir;
+    property BPLPath: String read FBPLPath write FBPLPath;
+    property DCPPath: String read FDCPPath write FDCPPath;
+    property CompileOnly: boolean read FCompileOnly write FCompileOnly;
     procedure Install(const IDEArray: TDxIDEArray); overload;
     procedure Uninstall(const IDEArray: TDxIDEArray); overload;
     procedure Stop();
     procedure SearchNewPackages(List: TStringList);
-    class function GetInstallLibraryDir(const InstallFileDir: String; IDE: TDxIDE; const IDEPlatform: TDxIDEPlatform = Win32): String;
-    class function GetInstallSourcesDir(const InstallFileDir: String): String;
+    function GetInstallLibraryDir(const InstallFileDir: String; IDE: TDxIDE; const IDEPlatform: TDxIDEPlatform = Win32): String;
+    function GetInstallSourcesDir(const InstallFileDir: String): String;
   end;
 
 const
-  UNIQUE_PREFIX = 'PKG';
   DxInstallOptionNames: array[TDxInstallOption] of String = ('Add Browsing Path', 'Use Native Look and Feel as Default', 'Compile Win64 Library', 'Install to C++Builder', 'Make debug .dcu', 'Replace IDE version prefix to ' + UNIQUE_PREFIX);
+
+
+procedure ApplyAppParams(const Installer: TDxInstaller);
 
 implementation
 
 uses
-  DxComponentFactory, DxUtils, IOUtils;
+  DxComponentFactory,
+  DxUtils,
+  IOUtils,
+  JclSysUtils,
+  DxInstallerExceptions;
 
 type
   TDummyProgress = class(TinterfacedObject, IProgressBar)
@@ -115,12 +145,36 @@ type
     procedure StepIt;
     procedure SetSize(const Value: Double);
     function GetSize: Double;
+    function GetPos: Integer;
     function GetMax: Integer;
   end;
 
+procedure ApplyAppParams(const Installer: TDxInstaller);
+var
+  TempSwithValue: String;
+begin
+  Installer.FindSourcePackage := dxFindCmdLineSwitch(dxisFindSourcePackage) or dxFindCmdLineSwitch(dxisReg) or dxFindCmdLineSwitch(dxisUnReg);
+  if dxFindCmdLineSwitch(dxisSources, TempSwithValue) then
+    Installer.InstallFileDir := TempSwithValue;
+  if dxFindCmdLineSwitch(dxisPackagePrefix, TempSwithValue) then
+  begin
+    TempSwithValue := Trim(TempSwithValue);
+    if TempSwithValue = EmptyStr then
+      raise DxCiException.CreateHelp('Package prefix can not be empty.', dxiecEmptyPrefix);
+    Installer.PackagePrefix := TempSwithValue;
+  end;
+  if dxFindCmdLineSwitch(dxisInstallDir, TempSwithValue) then
+    Installer.InstallLibraryDir := TempSwithValue;
+  if dxFindCmdLineSwitch(dxisBPLOutDir, TempSwithValue) then
+    Installer.BPLPath := TempSwithValue;
+  if dxFindCmdLineSwitch(dxisDCPOutDir, TempSwithValue) then
+    Installer.DCPPath := TempSwithValue;
+  Installer.CompileOnly := dxFindCmdLineSwitch(dxisCompileOnly);
+end;
+
 { TDxInstaller }
 
-constructor TDxInstaller.Create;
+constructor TDxInstaller.Create(const Options: TDxInstallerOptions);
 const TEMP_RC_NAME = 'template.rc';
 var
   I: Integer;
@@ -138,6 +192,9 @@ begin
   if not FileExists(TEMP_RC_NAME) then
     ExportResourceToFile(TEMP_RC_NAME, 'TEMP_RC', 'TXT');
   FRCTemplate := TFile.ReadAllText(TEMP_RC_NAME);
+  FConsoleMode := dxioConsoleMode in Options;
+  FCompileOnly := dxioCompileOnly in Options;
+  FPackagePrefix := UNIQUE_PREFIX;
 end;
 
 function TDxInstaller.CreateProgress(const Max: Integer; const Size: Double): IProgressBar;
@@ -180,23 +237,39 @@ begin
   Result := GetComponentsHierarhyJson(FComponents[IDEs.IndexOf(IDE)]);
 end;
 
-class function TDxInstaller.GetInstallLibraryDir(const InstallFileDir: String; IDE: TDxIDE; const IDEPlatform: TDxIDEPlatform): String;
+function TDxInstaller.GetInstallLibraryDir(const InstallFileDir: String; IDE: TDxIDE; const IDEPlatform: TDxIDEPlatform): String;
 begin
-  Result := IncludeTrailingPathDelimiter(InstallFileDir) + 'Library';
+  Result := InstallLibraryDir;
+  if Result = EmptyStr then
+    Result := IncludeTrailingPathDelimiter(InstallFileDir) + DEF_INSTALL_DIR;
   if IDE <> nil then begin
     Result := Result + '\' + TDxProfile.GetIDEVersionNumberStr(IDE);
     if IDEPlatform = Win64 then Result := Result + '\' + DxIDEPlatformNames[IDEPlatform];
   end;
 end;
 
-class function TDxInstaller.GetInstallSourcesDir(const InstallFileDir: String): String;
+function TDxInstaller.GetInstallSourcesDir(const InstallFileDir: String): String;
 begin
   Result := GetInstallLibraryDir(InstallFileDir, nil) + '\Sources';
+end;
+
+function TDxInstaller.GetBplPath(IDE: TDxIDE; const IDEPlatform: TDxIDEPlatform): String;
+begin
+  Result := FBPLPath;
+  if Result = EmptyStr then
+    Result := IDE.BPLOutputPath[IDEPlatform];
 end;
 
 function TDxInstaller.GetComponents(IDE: TDxIDE): TDxComponentList;
 begin
   Result := FComponents[IDEs.IndexOf(IDE)];
+end;
+
+function TDxInstaller.GetDclPath(IDE: TDxIDE; const IDEPlatform: TDxIDEPlatform): String;
+begin
+  Result := FDCPPath;
+  if Result = EmptyStr then
+    Result := IDE.DCPOutputPath[IDEPlatform];
 end;
 
 function TDxInstaller.GetOptions(IDE: TDxIDE): TDxInstallOptions;
@@ -289,7 +362,8 @@ end;
 
 procedure TDxInstaller.CheckStoppedState;
 begin
-  Application.ProcessMessages;
+  if not FConsoleMode then
+    Application.ProcessMessages;
   if State = dxisStopped then begin
     SetState(dxisNormal);
     Abort;
@@ -301,12 +375,12 @@ var
   IDE: TDxIDE;
 begin
   SetState(dxisRunning);
-  ProgressBar := CreateProgress(Length(IDEArray) * 2, 100);
+  FProgressBar := CreateProgress(Length(IDEArray) * 2, 100);
   try
     for IDE in IDEArray do Install(IDE);
     SetState(dxisNormal);
   finally
-    ProgressBar := nil;
+    FProgressBar := nil;
   end;
 end;
 
@@ -315,12 +389,12 @@ var
   IDE: TDxIDE;
 begin
   SetState(dxisRunning);
-  ProgressBar := CreateProgress(Length(IDEArray), 100);
+  FProgressBar := CreateProgress(Length(IDEArray), 100);
   try
     for IDE in IDEArray do Uninstall(IDE);
     SetState(dxisNormal);
   finally
-    ProgressBar := nil;
+    FProgressBar := nil;
   end;
 end;
 
@@ -394,7 +468,10 @@ begin
       pb.StepIt;
     end;
   end;
+  FProgressBar.StepIt;
 
+  if FCompileOnly then
+    Exit;
   AddLibrarySearchPath(GetInstallLibraryDir(InstallFileDir, IDE, Win32), Win32);
   if dxioCompileWin64Library in Options[IDE] then AddLibrarySearchPath(GetInstallLibraryDir(InstallFileDir, IDE, Win64), Win64);
   if dxioAddBrowsingPath in Options[IDE] then begin
@@ -406,7 +483,6 @@ begin
   end;
 
   SetIDEOverrideEnvironmentVariable(IDE, DxEnvironmentVariableName, InstallFileDir);
-  ProgressBar.StepIt;
 end;
 
 procedure TDxInstaller.InstallPackage(IDE: TDxIDE; const IDEPlatform: TDxIDEPlatform; Component: TDxComponent; Package: TDxPackage);
@@ -422,6 +498,7 @@ var
   ResFileName: String;
   RCFileName: String;
   Code: string;
+  ExecOptions: TJclExecuteCmdProcessOptions;
 begin
   CheckStoppedState;
   if not Package.Exists then Exit;
@@ -441,8 +518,8 @@ begin
   if IDEPlatform = Win32 then IDE.DCC := IDE.DCC32 else
   if IDEPlatform = Win64 then TDxBDSIDE(IDE).DCC := TDxBDSIDE(IDE).DCC64;
 
-  BPLPath := IDE.BPLOutputPath[IDEPlatform];
-  DCPPath := IDE.DCPOutputPath[IDEPlatform];
+  BPLPath := GetBplPath(IDE, IDEPlatform);
+  DCPPath := GetDclPath(IDE, IDEPlatform);
   InstallSourcesDir := GetInstallSourcesDir(InstallFileDir);
   InstallLibraryDir := GetInstallLibraryDir(InstallFileDir, IDE, IDEPlatform);
   ForceDirectories(BPLPath);
@@ -479,6 +556,7 @@ begin
   try
     if Package.Prefix <> Package.SourcePrefix then
     begin
+      UpdateProgressState(Format('Copy and modify source package from %s to %s...', [Package.SourcePrefix, Package.Prefix]));
       code := TFile.ReadAllText(Package.FullSourceFileName);
       code := code
         .Replace(TPath.GetFileNameWithoutExtension(Package.FullFileName), TPath.GetFileNameWithoutExtension(Package.SourceFullName))
@@ -491,6 +569,7 @@ begin
     ResFileName := TPath.ChangeExtension(Package.FullFileName, '.res');
     if not TFile.Exists(ResFileName) then
     begin
+      UpdateProgressState('Resource file not found, generating new one...');
       RCFileName := TPath.GetTempPath;
       DeleteFile(RCFileName);
       RCFileName := TPath.Combine(RCFileName, TEMP_RC_NAME);
@@ -506,7 +585,20 @@ begin
         .Replace('%PACKAGE_NAME%', Package.FullName.Replace('"', '`') + BPLExtName)
       ;
       TFile.WriteAllText(RCFileName, code);
-      ExecuteProcess('brcc32.exe', Format('"%s" "-fo%s"', [RCFileName, ResFileName]), EmptyStr, true, false, pwsHidden, i);
+      ExecOptions := TJclExecuteCmdProcessOptions.Create(Format('%sbrcc32.exe "%s" "-fo%s"', [IncludeTrailingPathDelimiter(IDE.BinFolderName), RCFileName, ResFileName]));
+      try
+        ExecOptions.AutoConvertOem := false;
+        ExecOptions.RawOutput := false;
+        ExecOptions.MergeError := true;
+        ExecOptions.RawError := false;
+        ExecOptions.StartupVisibility := svHide;
+
+        UpdateProgressState(ExecOptions.CommandLine);
+        ExecuteCmdProcess(ExecOptions);
+        UpdateProgressState(ExecOptions.Output);
+      finally
+        ExecOptions.Free;
+      end;
       DeleteFile(RCFileName);
     end;
 
@@ -517,11 +609,12 @@ begin
     DestPackageName := Package.FullFileName;
     if dxioDoNotIncludeIDEVersionInPackageName in Options[IDE] then
     begin
-      DestPackageName := IncludeTrailingPathDelimiter(ExtractFilePath(Package.FullFileName)) + Package.Name + UNIQUE_PREFIX + ExtractFileExt(Package.FullFileName);
+      UpdateProgressState(Format('Modify source package and replace IDE prefix from %s to %s...', [Package.Prefix, PackagePrefix]));
+      DestPackageName := IncludeTrailingPathDelimiter(ExtractFilePath(Package.FullFileName)) + Package.Name + PackagePrefix + ExtractFileExt(Package.FullFileName);
       if not SameText(DestPackageName, Package.FullFileName) then
       begin
         code := TFile.ReadAllText(Package.FullFileName);
-        code := code.Replace(TDxProfile.GetIDEVersionNumberStr(IDE), UNIQUE_PREFIX);
+        code := code.Replace(Package.Prefix, PackagePrefix);
         code := code.Replace('{$R *.res}', Format('{$R ''%s''}', [ResFileName]));
         TFile.WriteAllText(DestPackageName, code);
       end;
@@ -533,7 +626,7 @@ begin
       if SameText(Package.Name, 'dxSkin') then
         CopyFile(IncludeTrailingPathDelimiter(BPLPath) + Package.FullName + BPLExtName, IncludeTrailingPathDelimiter(InstallLibraryDir) + Package.FullName + BPLExtName, True);
 
-      if (IDEPlatform = Win32) and (Package.Usage <> dxpuRuntimeOnly) then
+      if not FCompileOnly and (IDEPlatform = Win32) and (Package.Usage <> dxpuRuntimeOnly) then
         R := IDE.RegisterPackage(DestPackageName, BPLPath, Package.Description);
     end;
     if not R then SetState(dxisError);
@@ -603,7 +696,7 @@ begin
   i := 4;
   for Comp in Profile.Components do
     inc(i, (Comp.RequiredPackages.Count + Comp.OptionalPackages.Count + Comp.OutdatedPackages.Count) * 2);
-  pb := CreateProgress(i + 3);
+  pb := CreateProgress(i + 1);
   try
     for Comp in Profile.Components do begin
       UninstallPackages(Comp.RequiredPackages);
@@ -618,14 +711,6 @@ begin
     UpdateProgress(IDE, nil, 'Deleting', 'Installation Files');
     UpdateProgressState('Deleting Directory: ' + InstallLibraryDir);
     DxUtils.DeleteDirectory(InstallLibraryDir);
-    pb.StepIt;
-
-    RemoveLibraryPath(Win32);
-    if IsSupportWin64(IDE) then begin
-      InstallLibraryDir := GetInstallLibraryDir(InstallFileDir, IDE, Win64);
-      RemoveLibraryPath(Win64);
-    end;
-    pb.StepIt;
 
     InstallLibraryDir := GetInstallLibraryDir(InstallFileDir, nil);
     if IsEmptyDirectory(InstallLibraryDir, InstallSourcesDir) then begin
@@ -635,9 +720,18 @@ begin
     end;
     pb.StepIt;
 
-    SetIDEOverrideEnvironmentVariable(IDE, DxEnvironmentVariableName, EmptyStr);
+    if FCompileOnly then
+      Exit;
+    RemoveLibraryPath(Win32);
+    if IsSupportWin64(IDE) then begin
+      InstallLibraryDir := GetInstallLibraryDir(InstallFileDir, IDE, Win64);
+      RemoveLibraryPath(Win64);
+    end;
+    
+    if not FCompileOnly then
+      SetIDEOverrideEnvironmentVariable(IDE, DxEnvironmentVariableName, EmptyStr);
   finally
-    ProgressBar.StepIt;
+    FProgressBar.StepIt;
   end;
 end;
 
@@ -648,25 +742,31 @@ begin
   CheckStoppedState;
   if (IDEPlatform = Win64) and (not IsSupportWin64(IDE)) then Exit;
 
-  BPLPath := IncludeTrailingPathDelimiter(IDE.BPLOutputPath[IDEPlatform]);
-  DCPPath := IncludeTrailingPathDelimiter(IDE.DCPOutputPath[IDEPlatform]);
+  BPLPath := IncludeTrailingPathDelimiter(GetBplPath(IDE, IDEPlatform));
+  DCPPath := IncludeTrailingPathDelimiter(GetDclPath(IDE, IDEPlatform));
   PackageName := Profile.GetPackageName(PackageBaseName, IDE);
 
-  FileName := BPLPath + PackageBaseName + UNIQUE_PREFIX + BPLExtName;
-  UpdateProgress(IDE, Component, 'Uninstall Package', FileName);
-  IDE.UnregisterPackage(FileName);
+  FileName := BPLPath + PackageBaseName + FPackagePrefix + BPLExtName;
+  if not FCompileOnly then
+  begin
+    UpdateProgress(IDE, Component, 'Uninstall Package', FileName);
+    IDE.UnregisterPackage(FileName);
+  end;
 
   FileName := ChangeFileExt(FileName, '.*');
   UpdateProgressState('Deleting BPL Files: ' + FileName);
   DeleteFiles(FileName);
 
-  FileName := DCPPath + PackageBaseName + UNIQUE_PREFIX + '.*';
+  FileName := DCPPath + PackageBaseName + FPackagePrefix + '.*';
   UpdateProgressState('Deleting DCP Files: ' + FileName);
   DeleteFiles(FileName);
 
   FileName := BPLPath + PackageName + BPLExtName;
-  UpdateProgress(IDE, Component, 'Uninstall Package', FileName);
-  IDE.UnregisterPackage(FileName);
+  if not FCompileOnly then
+  begin
+    UpdateProgress(IDE, Component, 'Uninstall Package', FileName);
+    IDE.UnregisterPackage(FileName);
+  end;
 
   FileName := ChangeFileExt(FileName, '.*');
   UpdateProgressState('Deleting BPL Files: ' + FileName);
@@ -690,6 +790,11 @@ end;
 { TDummyProgress }
 
 function TDummyProgress.GetMax: Integer;
+begin
+  Result := 0;
+end;
+
+function TDummyProgress.GetPos: Integer;
 begin
   Result := 0;
 end;

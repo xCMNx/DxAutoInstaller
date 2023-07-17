@@ -120,6 +120,7 @@ begin
 
   // Initial Install Page;
   FInstaller := TDxInstaller.Create;
+  ApplyAppParams(FInstaller);
   PanTreeList.BevelKind := Vcl.Controls.bkNone;
   FTreeList := TDxQuantumTreeList.Create(FInstaller, PanTreeList);
   FProgressForm := TDxProgressForm.Create(nil);

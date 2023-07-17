@@ -129,6 +129,10 @@
             <DesignClass>TDataModule</DesignClass>
         </DCCReference>
         <DCCReference Include="Sources\DxUtils.pas"/>
+        <DCCReference Include="Sources\DxConsoleInstaller.pas"/>
+        <DCCReference Include="Sources\DxBDSVersionsConsts.pas"/>
+        <DCCReference Include="Sources\DxConsoleSwitchesConsts.pas"/>
+        <DCCReference Include="Sources\DxInstallerExceptions.pas"/>
         <RcItem Include="Resources\Profile.ini">
             <ContainerId>ResourceItem</ContainerId>
             <ResourceType>INI</ResourceType>
