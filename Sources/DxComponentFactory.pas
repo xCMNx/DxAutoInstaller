@@ -87,15 +87,15 @@ var
   List: TStringList;
   PackageName, FileName: String;
   Package: TDxPackage;
-  ComponentPath, Prefix, SourcePrefix: String;
+  ComponentPath, Postfix, SourcePostfix: String;
   i: Byte;
 begin
   if IsRequiredPackages then List := Component.Profile.RequiredPackages else List := Component.Profile.OptionalPackages;
   ComponentPath := TDxProfile.GetComponentPackagesDir(Installer.InstallFileDir, Component.Profile.ComponentName);
   for PackageName in List do begin
-    Prefix := TDxProfile.GetIDEVersionNumberStr(IDE);
-    SourcePrefix := EmptyStr;
-    FileName := ComponentPath + '\' + PackageName + Prefix + IDE.PackageSourceFileExtension;
+    Postfix := TDxProfile.GetIDEVersionNumberStr(IDE);
+    SourcePostfix := EmptyStr;
+    FileName := ComponentPath + '\' + PackageName + Postfix + IDE.PackageSourceFileExtension;
     if not FileExists(FileName) then
     begin
       if FFindSourcePackage then
@@ -103,12 +103,12 @@ begin
         i := 1;
         while (IDE.IDEPackageVersionNumber + i < 29) or (IDE.IDEPackageVersionNumber - i > 1) do
         begin
-          SourcePrefix := TDxProfile.GetPackagePrefix(IDE.IDEPackageVersionNumber + i);
-          FileName := ComponentPath + '\' +  PackageName + SourcePrefix + IDE.PackageSourceFileExtension;
+          SourcePostfix := TDxProfile.GetPackagePostfix(IDE.IDEPackageVersionNumber + i);
+          FileName := ComponentPath + '\' +  PackageName + SourcePostfix + IDE.PackageSourceFileExtension;
           if FileExists(FileName) then
             break;
-          SourcePrefix := TDxProfile.GetPackagePrefix(IDE.IDEPackageVersionNumber - i);
-          FileName := ComponentPath + '\' +  PackageName + SourcePrefix + IDE.PackageSourceFileExtension;
+          SourcePostfix := TDxProfile.GetPackagePostfix(IDE.IDEPackageVersionNumber - i);
+          FileName := ComponentPath + '\' +  PackageName + SourcePostfix + IDE.PackageSourceFileExtension;
           if FileExists(FileName) then
             break;
           Inc(i);
@@ -117,7 +117,7 @@ begin
       if not FileExists(FileName) then
         Continue;
     end;
-    Package := TDxPackage.Create(ComponentPath, PackageName, Prefix, SourcePrefix);
+    Package := TDxPackage.Create(ComponentPath, PackageName, Postfix, SourcePostfix);
     Package.Required := IsRequiredPackages;
     Component.Packages.Add(Package);
   end;

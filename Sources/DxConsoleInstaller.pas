@@ -6,15 +6,15 @@ uses
   Windows,
   SysUtils,
   Generics.Collections,
-  Diagnostics,
-  IOUtils,
+  Diagnostics, IOUtils,
   Classes,
   DxConsoleSwitchesConsts;
 
 type
-  TSwitchValues = TDictionary<TDxInstallerSwitch, String>;
+  TSwitchValues = TDictionary<TDxInstallerSwitch, string>;
 
 function IsConsoleMode: boolean;
+
 function ExecuteConsoleInstallation: Integer;
 
 implementation
@@ -45,27 +45,31 @@ type
     function GetSize: Double; override;
     function GetPos: Integer; override;
   end;
-  TIDEnames = array [0..7] of String;
+
+  TIDEnames = array[0..8] of string;
+
   TLogOutput = class
     Installer: TDxInstaller;
-    LastTarget: String;
+    LastTarget: string;
     Bars: TList<Weakref<IProgressBar>>;
     Stopwatch: TStopwatch;
-    Title: String;
+    Title: string;
     LastInfo: TConsoleScreenBufferInfo;
     ConHandle: THandle;
     constructor Create;
     destructor Destroy; override;
     procedure Update;
     procedure OnProgresEvent(progress: IProgressBar; event: TProgressBaseBarEvent);
-    procedure UpdateProgress(IDE: TDxIDE; Component: TDxComponentProfile; const Task, Target: String);
-    procedure UpdateProgressState(const StateText: String);
+    procedure UpdateProgress(IDE: TDxIDE; Component: TDxComponentProfile; const Task, Target: string);
+    procedure UpdateProgressState(const StateText: string);
     function CreateProgress(const Max: Integer; const Size: Double = 0.5): IProgressBar;
     procedure ClearLine;
   end;
+
   SmallRectHelper = record helper for TSmallRect
     function GetWidth: integer;
   end;
+
   CONSOLE_SCREEN_BUFFER_INFO_Helper = record helper for _CONSOLE_SCREEN_BUFFER_INFO
     function GetWidth: integer;
   end;
@@ -80,7 +84,7 @@ begin
   Result := false;
 end;
 
-function GetSwitchValue(const Switch: TDxInstallerSwitch): String;
+function GetSwitchValue(const Switch: TDxInstallerSwitch): string;
 begin
   if DxFindCmdLineSwitch(Switch, Result) then
     Exit;
@@ -94,12 +98,16 @@ begin
   Result[1] := IDE.IDEVersionNumberStr;
   Result[2] := TDxProfile.GetIDEVersionNumberStr(IDE);
   Result[3] := IntToStr(IDE.IDEVersionNumber);
-  Result[4] := IntToStr(IDE.IDEVersionNumber)+'.0';
+  Result[4] := IntToStr(IDE.IDEVersionNumber) + '.0';
   if IDE.IDEVersionNumber > HIGH(BDSVersions) then
     Exit;
   Result[5] := 'VER' + BDSVersions[IDE.IDEVersionNumber].CoreIdeVersion;
   Result[6] := BDSVersions[IDE.IDEVersionNumber].VersionStr;
   Result[7] := BDSVersionNames[IDE.IDEVersionNumber];
+  if IDE.IDEVersionNumber > 16 then
+    Result[8] := 'XE' + Result[6]
+  else
+    Result[8] := Result[7];
 end;
 
 procedure ListIDEs(Installer: TDxInstaller);
@@ -108,15 +116,14 @@ var
 begin
   WriteLn('Installed IDE names:');
   for i := Installer.IDEs.Count - 1 downto 0 do
-    WriteLn(#9, String.Join('/', GetIdeNames(Installer.IDEs[i])));
+    WriteLn(#9, string.Join('/', GetIdeNames(Installer.IDEs[i])));
 end;
-
 
 function GetIde(const Param: string; Installer: TDxInstaller): TDxIde;
 var
   i: Integer;
   Names: TIDEnames;
-  Name: String;
+  Name: string;
 begin
   for i := Installer.IDEs.Count - 1 downto 0 do
   begin
@@ -132,6 +139,7 @@ begin
 end;
 
 procedure PrintHelp;
+
   procedure PrintSwitchesDescription(const Optional: boolean);
   var
     Switch: TDxInstallerSwitch;
@@ -140,6 +148,7 @@ procedure PrintHelp;
       if (DxSwitches[Switch].ErrorCode = 0) = Optional then
         WriteLn(#9, DxSwitches[Switch].ToString);
   end;
+
 begin
   WriteLn('Requiered:');
   PrintSwitchesDescription(false);
@@ -149,7 +158,7 @@ end;
 
 procedure PrintSwitches(const SwitchValues: TSwitchValues);
 var
-  Switch: TPair<TDxInstallerSwitch, String>;
+  Switch: TPair<TDxInstallerSwitch, string>;
 begin
   WriteLn('Parameters:');
   for Switch in SwitchValues do
@@ -173,52 +182,29 @@ begin
     Result := PChar(Ptr);
 end;
 
-Type
-  TVersionInfoProp = (
-    vipComments
-    ,vipCompanyName
-    ,vipFileDescription
-    ,vipFileVersion
-    ,vipInternalName
-    ,vipLegalCopyright
-    ,vipLegalTrademarks
-    ,vipOriginalFileName
-    ,vipPrivateBuild
-    ,vipProductName
-    ,vipProductVersion
-    ,vipSpecialBuild
-  );
-  TVersionInfo = TDictionary<TVersionInfoProp, String>;
+type
+  TVersionInfoProp = (vipComments, vipCompanyName, vipFileDescription, vipFileVersion, vipInternalName, vipLegalCopyright, vipLegalTrademarks, vipOriginalFileName, vipPrivateBuild, vipProductName, vipProductVersion, vipSpecialBuild);
+
+  TVersionInfo = TDictionary<TVersionInfoProp, string>;
+
 const
-  VerNames: array [TVersionInfoProp] of string = (
-    'Comments'
-    ,'CompanyName'
-    ,'FileDescription'
-    ,'FileVersion'
-    ,'InternalName'
-    ,'LegalCopyright'
-    ,'LegalTrademarks'
-    ,'OriginalFileName'
-    ,'PrivateBuild'
-    ,'ProductName'
-    ,'ProductVersion'
-    ,'SpecialBuild'
-  );
+  VerNames: array[TVersionInfoProp] of string = ('Comments', 'CompanyName', 'FileDescription', 'FileVersion', 'InternalName', 'LegalCopyright', 'LegalTrademarks', 'OriginalFileName', 'PrivateBuild', 'ProductName', 'ProductVersion', 'SpecialBuild');
 
 function getVersionInfo(const FileName: string; const downcase: boolean = false): TVersionInfo;
-Type
+type
   TTransRec = record
     Lang: Word;
     CharSet: Word;
   end;
+
   PTransRec = ^TTransRec;
 var
-  InfoBuffer: String;
+  InfoBuffer: string;
   InfoHandle: DWORD;
   Ptr: Pointer;
   Len: DWORD;
   prop: TVersionInfoProp;
-  propStrPrefix: string;
+  propStrPostfix: string;
 begin
   Result := TVersionInfo.Create;
   try
@@ -229,10 +215,10 @@ begin
       Exit;
     if not VerQueryValue(PChar(InfoBuffer), '\VarFileInfo\Translation', Ptr, Len) then
       Exit;
-    propStrPrefix := Format('\StringFileInfo\%4.4x%4.4x\', [PTransRec(Ptr).Lang, PTransRec(Ptr).CharSet]);
-    for prop:= Low(TVersionInfoProp) to High(TVersionInfoProp) do
+    propStrPostfix := Format('\StringFileInfo\%4.4x%4.4x\', [PTransRec(Ptr).Lang, PTransRec(Ptr).CharSet]);
+    for prop := Low(TVersionInfoProp) to High(TVersionInfoProp) do
     begin
-      if VerQueryValue(PChar(InfoBuffer), PChar(propStrPrefix + VerNames[prop]), Ptr, Len) then
+      if VerQueryValue(PChar(InfoBuffer), PChar(propStrPostfix + VerNames[prop]), Ptr, Len) then
         if downcase then
           Result.AddOrSetValue(prop, LowerCase(PChar(Ptr)))
         else
@@ -244,16 +230,17 @@ begin
   end;
 end;
 
-procedure registerComponent(IDE:TDxIde; Components: TDxComponentList; src: string);
-Type
+procedure registerComponent(IDE: TDxIde; Components: TDxComponentList; src: string);
+type
   TTransRec = record
     Lang: Word;
     CharSet: Word;
   end;
+
   PTransRec = ^TTransRec;
 var
   Component: TDxComponent;
-  Package: TDxPackage;
+  package: TDxPackage;
   verisonInfo: TVersionInfo;
   InstallList: TStrings;
   Name: string;
@@ -263,17 +250,17 @@ begin
   try
     for Component in Components do
     begin
-      for Package in Component.Packages do
+      for package in Component.Packages do
       begin
-        if Package.Usage = dxpuRuntimeOnly then
+        if package.Usage = dxpuRuntimeOnly then
           Continue;
-        InstallList.Values[LowerCase(Package.FullName)] := Package.Description;
+        InstallList.Values[LowerCase(package.FullName)] := package.Description;
       end;
     end;
     for FileName in TDirectory.GetFiles(src, '*.bpl') do
     try
       verisonInfo := getVersionInfo(FileName);
-      if verisonInfo.TryGetValue(vipOriginalFileName, name) and (InstallList.IndexOfName(LowerCase(Tpath.GetFileNameWithoutExtension(name))) > -1) then
+      if verisonInfo.TryGetValue(vipOriginalFileName, Name) and (InstallList.IndexOfName(LowerCase(Tpath.GetFileNameWithoutExtension(Name))) > -1) then
         IDE.RegisterPackage(FileName, InstallList.Values[Name])
     finally
       FreeAndNil(verisonInfo);
@@ -283,30 +270,53 @@ begin
   end;
 end;
 
-procedure unregisterComponent(IDE:TDxIde);
-const
-  DX_NAME = 'developer express';
+procedure unregisterComponent(IDE: TDxIde; remove: boolean);
+
+  function checkFile(filename: string): boolean;
+  const
+    DX_NAME = 'developer express';
+  var
+    verisonInfo: TVersionInfo;
+    value: string;
+  begin
+    verisonInfo := getVersionInfo(filename, true);
+    try
+      result := (verisonInfo.TryGetValue(vipCompanyName, value) and (pos(DX_NAME, value) > 0)) or (verisonInfo.TryGetValue(vipLegalCopyright, value) and (pos(DX_NAME, value) > 0)) or (verisonInfo.TryGetValue(vipFileDescription, value) and (pos(DX_NAME, value) > 0));
+      if not result then
+        Exit;
+      IDE.UnregisterPackage(filename);
+      if not remove then
+        Exit;
+      DeleteFile(filename);
+      DeleteFile(TPath.ChangeExtension(filename, '.dcp'));
+    finally
+      FreeAndNil(verisonInfo);
+    end;
+  end;
+
+  procedure check(idePlatform: TJclBDSPlatform);
+  var
+    fileName: string;
+    dcpDir: string;
+  begin
+    dcpDir := IDE.DCPOutputPath[bpWin32];
+    for fileName in TDirectory.GetFiles(IDE.BPLOutputPath[bpWin32], '*.bpl') do
+    begin
+      if checkFile(fileName) and remove then
+        DeleteFile(TPath.Combine(dcpDir, TPath.GetFileNameWithoutExtension(fileName)) + '.dcp');
+    end;
+  end;
+
 var
   i: integer;
   packages: TJclBorRADToolIdePackages;
-  fileName: string;
-  verisonInfo: TVersionInfo;
-  value: string;
 begin
   packages := IDE.IdePackages;
   for i := packages.Count - 1 downto 0 do
-  try
-    fileName := packages.PackageFileNames[i];
-    verisonInfo := getVersionInfo(FileName, true);
-    if (verisonInfo.TryGetValue(vipCompanyName, value) and (pos(DX_NAME, value) > 0))
-      or (verisonInfo.TryGetValue(vipLegalCopyright, value) and (pos(DX_NAME, value) > 0))
-      or (verisonInfo.TryGetValue(vipFileDescription, value) and (pos(DX_NAME, value) > 0)) then
-      IDE.UnregisterPackage(fileName);
-  finally
-    FreeAndNil(verisonInfo);
-  end;
+    checkFile(packages.PackageFileNames[i]);
+  check(bpWin32);
+  check(bpWin64);
 end;
-
 
 function ExecuteConsoleInstallation: Integer;
 
@@ -341,31 +351,28 @@ begin
   WriteLn(GetCommandLine);
 {$ENDIF}
   if dxFindCmdLineSwitch(dxisVersion) then
-  Begin
+  begin
     WriteLn(GetVersionStr);
     Exit;
-  End;
+  end;
   if dxFindCmdLineSwitch(dxisDxVersion) then
-  Begin
+  begin
     WriteLn(TDxProfile.GetDxBuildNumberAsVersion(TDxProfile.GetDxBuildNumber(GetSwitchValue(dxisSources))));
     Exit;
-  End;
-
+  end;
   Output := TLogOutput.Create;
   Installer := TDxInstaller.Create([dxioConsoleMode]);
   try
     if dxFindCmdLineSwitch(dxisHelp) or dxFindCmdLineSwitch(dxisHelp2) then
-    Begin
+    begin
       PrintHelp;
       ListIDEs(Installer);
       Exit;
-    End;
-
+    end;
     Installer.OnUpdateProgress := Output.UpdateProgress;
     Installer.OnUpdateProgressState := Output.UpdateProgressState;
     Output.Installer := Installer;
     Installer.OnOnStartProgress := Output.CreateProgress;
-
     SwitchValues := TSwitchValues.Create;
     try
       for Switch := Low(TDxInstallerSwitch) to High(TDxInstallerSwitch) do
@@ -384,41 +391,33 @@ begin
         Write(IDE.BPLOutputPath[bpWin64]);
         Exit;
       end;
-
       PrintSwitches(SwitchValues);
       ListIDEs(Installer);
       WriteLn('Selected IDE: ', IDE.Name);
-
       if IDE.AnyInstanceRunning then
         raise DxCiException.CreateFmtHelp('Close all running %s instances.', [IDE.Name], dxiecIDEInstanceStarted);
-      if SwitchValues.ContainsKey(dxisUnReg) then
+      if SwitchValues.ContainsKey(dxisUnReg) or SwitchValues.ContainsKey(dxisUnRegAndRemove) then
       begin
         Installer.OnUpdateProgress(IDE, nil, 'Unregister components', '');
-        unregisterComponent(IDE);
+        unregisterComponent(IDE, SwitchValues.ContainsKey(dxisUnRegAndRemove));
         Exit;
       end;
-
       ApplyAppParams(Installer);
-
       if SwitchValues.ContainsKey(dxisUninstall) then
       begin
         Installer.OnUpdateProgress(IDE, nil, 'Uninstall', '');
         Installer.Uninstall([IDE]);
         Exit;
       end;
-
       if not (SwitchValues.TryGetValue(dxisSources, SwitchValue) and DirectoryExists(SwitchValue)) then
         raise DxCiException.Create(dxisSources);
-
       if SwitchValues.TryGetValue(dxisJsonExport, SwitchValue) then
       begin
         TFile.WriteAllText(SwitchValue, Installer.GetIdeComponentsHierarchy(IDE));
         Exit;
       end;
-
       if not CheckInstallablecomponents(Installer.Components[IDE]) then
         raise DxCiException.CreateFmtHelp('DevExpress installable packages for %s is not supported.', [IDE.Name], dxIDENotSupported);
-
       Options := [];
       if not SwitchValues.ContainsKey(dxisNoBrowsingPath) then
         Include(Options, dxioAddBrowsingPath);
@@ -430,10 +429,11 @@ begin
         Include(Options, dxioInstallToCppBuilder);
       if SwitchValues.ContainsKey(dxisDebugDcu) then
         Include(Options, dxioMakeDebugDcu);
-      if SwitchValues.ContainsKey(dxisPrefix) then
-        Include(Options, dxioDoNotIncludeIDEVersionInPackageName);
+      if SwitchValues.ContainsKey(dxisPostfix) then
+        Include(Options, dxioChangePackagePostfix);
+      if SwitchValues.ContainsKey(dxisSuffix) then
+        Include(Options, dxioAddPackageSuffix);
       Installer.Options[IDE] := Options;
-
       if SwitchValues.TryGetValue(dxisReg, SwitchValue) then
       begin
         Installer.OnUpdateProgress(IDE, nil, 'Register components', '');
@@ -449,7 +449,6 @@ begin
     Installer.Free;
   end;
 end;
-
 { TLogOutput }
 
 procedure TLogOutput.ClearLine;
@@ -495,20 +494,20 @@ var
   Str: string;
 begin
   ClearLine;
-  str := Stopwatch.TimeString + ' | ';
+  Str := Stopwatch.TimeString + ' | ';
   for Progress in Bars do
     if Progress.Max > 1 then
-      str := str + Format('%d/%d(%d%%) | ', [Progress.Pos, Progress.Max, Trunc(Progress.Pos * (1 / Progress.Max) * 100)]);
-  str := str + Title;
-  if Length(str) > LastInfo.GetWidth  then
+      Str := Str + Format('%d/%d(%d%%) | ', [Progress.Pos, Progress.Max, Trunc(Progress.Pos * (1 / Progress.Max) * 100)]);
+  Str := Str + Title;
+  if Length(Str) > LastInfo.GetWidth then
   begin
-    SetLength(str, LastInfo.GetWidth - 5);
+    SetLength(Str, LastInfo.GetWidth - 5);
     Str := Str + '...';
   end;
   Write(#13, Str, #13);
 end;
 
-procedure TLogOutput.UpdateProgress(IDE: TDxIDE; Component: TDxComponentProfile; const Task, Target: String);
+procedure TLogOutput.UpdateProgress(IDE: TDxIDE; Component: TDxComponentProfile; const Task, Target: string);
 begin
   ClearLine;
   if LastTarget <> Target then
@@ -520,7 +519,7 @@ begin
   Update;
 end;
 
-procedure TLogOutput.UpdateProgressState(const StateText: String);
+procedure TLogOutput.UpdateProgressState(const StateText: string);
 begin
   ClearLine;
   WriteLn(#13, StateText);
@@ -530,7 +529,6 @@ begin
 //    Installer.Stop;
     raise DxCiException.CreateHelp('Compiler error.', 200);
 end;
-
 { TProgress }
 
 constructor TProgress.Create(const Max: integer; onEvent: TOnProgressBarEvent; Size: double);
@@ -571,14 +569,12 @@ begin
   FSize := Value;
   inherited;
 end;
-
 { SmallRectHelper }
 
 function SmallRectHelper.GetWidth: integer;
 begin
   Result := Right - Left;
 end;
-
 { CONSOLE_SCREEN_BUFFER_INFO_Helper }
 
 function CONSOLE_SCREEN_BUFFER_INFO_Helper.GetWidth: integer;
@@ -587,3 +583,4 @@ begin
 end;
 
 end.
+

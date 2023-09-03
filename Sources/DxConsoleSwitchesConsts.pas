@@ -19,9 +19,10 @@ type
     ,dxisUninstall
     ,dxisReg
     ,dxisUnReg
+    ,dxisUnRegAndRemove
     ,dxisCompileOnly
     ,dxisJsonExport
-    ,dxisPackagePrefix
+    ,dxisPackagePostfix
     ,dxisInstallDir
     ,dxisBPLOutDir
     ,dxisDCPOutDir
@@ -35,12 +36,13 @@ type
     ,dxisWin64
     ,dxisCpp
     ,dxisDebugDcu
-    ,dxisPrefix
+    ,dxisPostfix
+    ,dxisSuffix
   );
   TDxInstallerSwitches = set of TDxInstallerSwitch;
 
 const
-  UNIQUE_PREFIX = 'PKG';
+  UNIQUE_POSTFIX = 'RS';
   DEF_INSTALL_DIR = 'Library';
   DxSwitches: array [TDxInstallerSwitch] of TDxInstallerSwitchRec = (
     (
@@ -84,6 +86,11 @@ const
       InfoArg: true;
     )
     ,(
+      Name: 'r--';
+      Description: 'Unregister and remove compiled packages';
+      InfoArg: true;
+    )
+    ,(
       Name: 'c';
       Description: 'Compile only';
     )
@@ -94,7 +101,7 @@ const
     )
     ,(
       Name: 'pp';
-      Description: 'Set package prefix for option -p';
+      Description: 'Set package postfix for option -p';
     )
     ,(
       Name: 'oi';
@@ -156,7 +163,11 @@ const
     )
     ,(
       Name: 'p';
-      Description: 'Replace IDE version prefix to ' + UNIQUE_PREFIX + ', can be changed by -pp option';
+      Description: 'Replace IDE version postfix to ' + UNIQUE_POSTFIX + ', can be changed by -pp option';
+    ),
+    (
+      Name: 's';
+      Description: 'Add to package file name IDE pakage version suffix';
     )
   );
 

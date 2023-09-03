@@ -21,7 +21,7 @@ uses
   DxConsoleSwitchesConsts;
 
 type
-  TDxInstallOption = (dxioAddBrowsingPath, dxioNativeLookAndFeel, dxioCompileWin64Library, dxioInstallToCppBuilder, dxioMakeDebugDcu, dxioDoNotIncludeIDEVersionInPackageName);
+  TDxInstallOption = (dxioAddBrowsingPath, dxioNativeLookAndFeel, dxioCompileWin64Library, dxioInstallToCppBuilder, dxioMakeDebugDcu, dxioChangePackagePostfix, dxioAddPackageSuffix);
   TDxInstallOptions = set of TDxInstallOption;
 
   TDxThirdPartyComponent = (dxtpcIBX, dxtpcTeeChart, dxtpcFireDAC, dxtpcBDE);
@@ -69,7 +69,7 @@ type
     FProgressBar: IProgressBar;
     FConsoleMode: boolean;
     FCompileOnly: boolean;
-    FPackagePrefix: String;
+    FPackagePostfix: String;
     FInstallLibraryDir: String;
     FBPLPath: String;
     FDCPPath: String;
@@ -110,7 +110,7 @@ type
     property ComponentsVersion: Cardinal read FComponentsVersion;
     property FindSourcePackage: boolean read FFindSourcePackage write SetFindSourcePackage;
     property ConsoleMode: Boolean read FConsoleMode;
-    property PackagePrefix: String read FPackagePrefix write FPackagePrefix;
+    property PackagePostfix: String read FPackagePostfix write FPackagePostfix;
     property InstallLibraryDir: String read FInstallLibraryDir write FInstallLibraryDir;
     property BPLPath: String read FBPLPath write FBPLPath;
     property DCPPath: String read FDCPPath write FDCPPath;
@@ -124,7 +124,7 @@ type
   end;
 
 const
-  DxInstallOptionNames: array[TDxInstallOption] of String = ('Add Browsing Path', 'Use Native Look and Feel as Default', 'Compile Win64 Library', 'Install to C++Builder', 'Make debug .dcu', 'Replace IDE version prefix to ' + UNIQUE_PREFIX);
+  DxInstallOptionNames: array[TDxInstallOption] of String = ('Add Browsing Path', 'Use Native Look and Feel as Default', 'Compile Win64 Library', 'Install to C++Builder', 'Make debug .dcu', 'Replace IDE version postfix to ' + UNIQUE_POSTFIX, 'Add to package file name IDE suffix');
 
 
 procedure ApplyAppParams(const Installer: TDxInstaller);
@@ -156,12 +156,12 @@ begin
   Installer.FindSourcePackage := dxFindCmdLineSwitch(dxisFindSourcePackage) or dxFindCmdLineSwitch(dxisReg) or dxFindCmdLineSwitch(dxisUnReg);
   if dxFindCmdLineSwitch(dxisSources, TempSwithValue) then
     Installer.InstallFileDir := TempSwithValue;
-  if dxFindCmdLineSwitch(dxisPackagePrefix, TempSwithValue) then
+  if dxFindCmdLineSwitch(dxisPackagePostfix, TempSwithValue) then
   begin
     TempSwithValue := Trim(TempSwithValue);
     if TempSwithValue = EmptyStr then
-      raise DxCiException.CreateHelp('Package prefix can not be empty.', dxiecEmptyPrefix);
-    Installer.PackagePrefix := TempSwithValue;
+      raise DxCiException.CreateHelp('Package postfix can not be empty.', dxiecEmptyPostfix);
+    Installer.PackagePostfix := TempSwithValue;
   end;
   if dxFindCmdLineSwitch(dxisInstallDir, TempSwithValue) then
     Installer.InstallLibraryDir := TempSwithValue;
@@ -194,7 +194,7 @@ begin
   FRCTemplate := TFile.ReadAllText(TEMP_RC_NAME);
   FConsoleMode := dxioConsoleMode in Options;
   FCompileOnly := dxioCompileOnly in Options;
-  FPackagePrefix := UNIQUE_PREFIX;
+  FPackagePostfix := UNIQUE_POSTFIX;
 end;
 
 function TDxInstaller.CreateProgress(const Max: Integer; const Size: Double): IProgressBar;
@@ -554,13 +554,13 @@ begin
     '-NSWinapi;System.Win;Data.Win;Datasnap.Win;Web.Win;Soap.Win;Xml.Win;Bde;Vcl;Vcl.Imaging;Vcl.Touch;Vcl.Samples;Vcl.Shell;System;Xml;Data;Datasnap;Web;Soap;IBX;VclTee; ';
 
   try
-    if Package.Prefix <> Package.SourcePrefix then
+    if Package.Postfix <> Package.SourcePostfix then
     begin
-      UpdateProgressState(Format('Copy and modify source package from %s to %s...', [Package.SourcePrefix, Package.Prefix]));
+      UpdateProgressState(Format('Copy and modify source package from %s to %s...', [Package.SourcePostfix, Package.Postfix]));
       code := TFile.ReadAllText(Package.FullSourceFileName);
       code := code
         .Replace(TPath.GetFileNameWithoutExtension(Package.FullFileName), TPath.GetFileNameWithoutExtension(Package.SourceFullName))
-        .Replace(Package.SourcePrefix, Package.Prefix)
+        .Replace(Package.SourcePostfix, Package.Postfix)
       ;
       TFile.WriteAllText(Package.FullFileName, code);
     end;
@@ -607,17 +607,31 @@ begin
       ExtraOptions := ExtraOptions + Format(' -JL -NB"%s" -NH"%s" -NO"%s" ', [DCPPath, InstallLibraryDir, DCPPath]);
 
     DestPackageName := Package.FullFileName;
-    if dxioDoNotIncludeIDEVersionInPackageName in Options[IDE] then
+    if dxioChangePackagePostfix in Options[IDE] then
     begin
-      UpdateProgressState(Format('Modify source package and replace IDE prefix from %s to %s...', [Package.Prefix, PackagePrefix]));
-      DestPackageName := IncludeTrailingPathDelimiter(ExtractFilePath(Package.FullFileName)) + Package.Name + PackagePrefix + ExtractFileExt(Package.FullFileName);
+      UpdateProgressState(Format('Modify source package and replace IDE postfix from %s to %s...', [Package.Postfix, PackagePostfix]));
+      DestPackageName := IncludeTrailingPathDelimiter(ExtractFilePath(Package.FullFileName)) + Package.Name + PackagePostfix + ExtractFileExt(Package.FullFileName);
       if not SameText(DestPackageName, Package.FullFileName) then
       begin
         code := TFile.ReadAllText(Package.FullFileName);
-        code := code.Replace(Package.Prefix, PackagePrefix);
+        code := code.Replace(Package.Postfix, PackagePostfix);
         code := code.Replace('{$R *.res}', Format('{$R ''%s''}', [ResFileName]));
         TFile.WriteAllText(DestPackageName, code);
       end;
+    end;
+    if dxioAddPackageSuffix in Options[IDE] then
+    begin
+      //ExtraOptions := Format('%s --lib-suffix %s', [ExtraOptions, ide.PackageVersionNumberStr]);
+      UpdateProgressState('Modify source package insert suffix auto directive...');
+      code := TFile.ReadAllText(DestPackageName);
+      if DestPackageName = Package.FullFileName then
+        DestPackageName := DestPackageName + '.tmp';
+      i := pos('{$LIBSUFFIX', code);
+      if i > 0 then
+        code[i + 1] := ' ';
+      //code := Format('{$LIBSUFFIX ''%s''}'#13#10'%s', [ide.PackageVersionNumberStr, code]);
+      code := Format('{$LIBSUFFIX ''%d''}'#13#10'%s', [ide.PackageVersionNumber, code]);
+      TFile.WriteAllText(DestPackageName, code);
     end;
 
     R := IDE.CompileDelphiPackageEx(DestPackageName, BPLPath, DCPPath, ExtraOptions);
@@ -633,7 +647,7 @@ begin
   finally
     if DestPackageName <> Package.FullFileName then
       DeleteFile(DestPackageName);
-    if Package.Prefix <> Package.SourcePrefix then
+    if Package.Postfix <> Package.SourcePostfix then
       DeleteFile(Package.FullFileName);
     if RCFileName <> EmptyStr then
     begin
@@ -746,7 +760,7 @@ begin
   DCPPath := IncludeTrailingPathDelimiter(GetDclPath(IDE, IDEPlatform));
   PackageName := Profile.GetPackageName(PackageBaseName, IDE);
 
-  FileName := BPLPath + PackageBaseName + FPackagePrefix + BPLExtName;
+  FileName := BPLPath + PackageBaseName + FPackagePostfix + BPLExtName;
   if not FCompileOnly then
   begin
     UpdateProgress(IDE, Component, 'Uninstall Package', FileName);
@@ -757,7 +771,7 @@ begin
   UpdateProgressState('Deleting BPL Files: ' + FileName);
   DeleteFiles(FileName);
 
-  FileName := DCPPath + PackageBaseName + FPackagePrefix + '.*';
+  FileName := DCPPath + PackageBaseName + FPackagePostfix + '.*';
   UpdateProgressState('Deleting DCP Files: ' + FileName);
   DeleteFiles(FileName);
 

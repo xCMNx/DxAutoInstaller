@@ -11,7 +11,7 @@ type
     dxiecResurvedFirst = 1
     ,dxIDENotSupported = 69
     ,dxiecIDEInstanceStarted = 100
-    ,dxiecEmptyPrefix
+    ,dxiecEmptyPostfix
   );
   DxCiException = class(Exception)
   public

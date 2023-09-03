@@ -25,9 +25,9 @@ type
   private
     FName: String;
     FPath: String;
-    FPrefix: String;
+    FPostfix: String;
     FCategory: TdxPackageCategory;
-    FSourcePrefix: String;
+    FSourcePostfix: String;
     FDescription: String;
     FUsage: TDxPackageUsage;
     FRequires: TStringList;
@@ -41,12 +41,12 @@ type
     function GetFullFileName: string;
     function GetFullSourceFileName: string;
   public
-    constructor Create(const Path, Name, Prefix: String; const SourcePrefix: String = '');
+    constructor Create(const Path, Name, Postfix: String; const SourcePostfix: String = '');
     destructor Destroy; override;
     property FullSourceFileName: String read GetFullSourceFileName;
     property FullFileName: String read GetFullFileName;
-    property Prefix: String read FPrefix;
-    property SourcePrefix: String read FSourcePrefix;
+    property Postfix: String read FPostfix;
+    property SourcePostfix: String read FSourcePostfix;
     property FullName: String read GetFullName;
     property SourceFullName: String read GetSourceFullName;
     property Name: String read FName;
@@ -58,7 +58,7 @@ type
     property Exists: Boolean read FExists;
     property Required: Boolean read FRequired write FRequired;
     property DependentComponents: TDxComponentList read FDependentComponents;
-    class procedure GetPackageNameAndPrefix(const FullName: String; out Name, Prefix: String);
+    class procedure GetPackageNameAndPostfix(const FullName: String; out Name, Postfix: String);
     class function ExtractPackageName(const Name: String): String;
   end;
 
@@ -224,16 +224,16 @@ end;
 
 { TDxPackage }
 
-constructor TDxPackage.Create(const Path, Name, Prefix, SourcePrefix: String);
+constructor TDxPackage.Create(const Path, Name, Postfix, SourcePostfix: String);
 begin
   inherited Create;
   FName := Name;
-  FPrefix := Prefix;
+  FPostfix := Postfix;
   FPath := Path;
-  if SourcePrefix = EmptyStr then
-    FSourcePrefix := FPrefix
+  if SourcePostfix = EmptyStr then
+    FSourcePostfix := FPostfix
   else
-    FSourcePrefix := SourcePrefix;
+    FSourcePostfix := SourcePostfix;
   if Pos('IBX', FName) > 0 then FCategory := dxpcIBX
     else if Pos('TeeChart', FName)> 0 then FCategory := dxpcTeeChart
     else if Pos('FireDAC', FName) > 0 then FCategory := dxpcFireDAC
@@ -281,7 +281,7 @@ end;
 
 function TDxPackage.GetFullName: string;
 begin
-  Result := FName + FPrefix;
+  Result := FName + FPostfix;
 end;
 
 function TDxPackage.GetFullSourceFileName: string;
@@ -289,15 +289,15 @@ begin
   Result := FPath + '\' + SourceFullName + DPKExtName;
 end;
 
-class procedure TDxPackage.GetPackageNameAndPrefix(const FullName: String; out Name, Prefix: String);
+class procedure TDxPackage.GetPackageNameAndPostfix(const FullName: String; out Name, Postfix: String);
 begin
   Name := ExtractPackageName(FullName);
-  Prefix := Copy(FullName, Length(Name) + 1, Length(FullName));
+  Postfix := Copy(FullName, Length(Name) + 1, Length(FullName));
 end;
 
 function TDxPackage.GetSourceFullName: string;
 begin
-  Result := FName + FSourcePrefix;
+  Result := FName + FSourcePostfix;
 end;
 
 procedure TDxPackage.ReadOptions;
